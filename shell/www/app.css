@@ -381,26 +381,26 @@ a {
 }
 
 .summary-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 16px;
-  overflow-x: auto;
   padding: 14px 18px;
 }
 
 .summary-row-main {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 16px;
   min-width: 0;
-  flex: 1 1 auto;
 }
 
 .summary-row-bubbles {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   min-width: 0;
 }
 
@@ -412,13 +412,26 @@ a {
 .summary-row-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
-  flex: 0 0 auto;
+  min-width: 0;
   white-space: nowrap;
+  flex-wrap: wrap;
 }
 
 .summary-row-actions button {
   min-width: 108px;
+}
+
+@media (max-width: 1160px) {
+  .summary-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .summary-row-actions {
+    justify-content: flex-end;
+  }
 }
 
 .quick-card {
@@ -1914,8 +1927,7 @@ textarea {
   }
 
   .summary-row {
-    display: grid;
-    overflow: visible;
+    grid-template-columns: 1fr;
   }
 
   .summary-row-main {

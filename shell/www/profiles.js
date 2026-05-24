@@ -1,6 +1,6 @@
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
-const UI_VERSION = "20260524-2310";
+const UI_VERSION = "20260524-2325";
 const LOCAL_SOCKS_PUBLIC_BIND = "192.168.1.1";
 const LOCAL_SOCKS_INTERNAL_BIND = "127.0.0.1";
 const DIRECT_DNS_ROUTE_TARGET = "ISP";
