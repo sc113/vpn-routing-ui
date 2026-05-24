@@ -7,7 +7,7 @@
   <meta http-equiv="Expires" content="0">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>VPN Routing UI</title>
-  <link rel="stylesheet" href="/app.css?v=20260502-1036">
+  <link rel="stylesheet" href="/app.css?v=20260524-2230">
 </head>
 <body>
   <main class="page">
@@ -51,7 +51,7 @@
           </p>
         </div>
         <div class="toolbar-right">
-          <button id="reloadBtn" class="secondary">Перечитать</button>
+          <button id="reloadBtn" class="refresh-button" type="button" aria-label="Перечитать данные роутера" title="Перечитать данные роутера">♻️</button>
         </div>
       </div>
       <div id="summaryGrid" class="engine-rows"></div>
@@ -149,7 +149,7 @@
           </p>
         </div>
         <div class="toolbar-right">
-          <button type="button" class="secondary" data-router-action="status-refresh">Считать статус</button>
+          <button type="button" class="refresh-button" data-router-action="status-refresh" aria-label="Перечитать runtime" title="Перечитать runtime">♻️</button>
         </div>
       </div>
 
@@ -186,7 +186,7 @@
           </p>
         </div>
         <div class="toolbar-right">
-          <button type="button" class="secondary" data-router-action="clients-refresh">Загрузить клиентов</button>
+          <button type="button" class="refresh-button" data-router-action="clients-refresh" aria-label="Загрузить клиентов" title="Загрузить клиентов">♻️</button>
         </div>
       </div>
 
@@ -562,7 +562,8 @@
     </div>
   </div>
 
-  <script src="/profiles.js?v=20260518-1857"></script>
+  <script src="/system-health-widget.js?v=20260524-2230"></script>
+  <script src="/profiles.js?v=20260524-2230"></script>
 </body>
 </html>
 

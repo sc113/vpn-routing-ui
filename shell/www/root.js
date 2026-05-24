@@ -4,7 +4,7 @@
   const statusRows = document.getElementById("statusRows");
   const reloadBtn = document.getElementById("reloadBtn");
   const checkUpdatesBtn = document.getElementById("checkUpdatesBtn");
-  const UI_VERSION = "20260524-1925";
+  const UI_VERSION = "20260524-2230";
   const state = {
     status: null,
     profiles: [],
@@ -654,46 +654,11 @@
     }
     const profileList = Array.isArray(state.profiles) ? state.profiles : [];
     const activeProfiles = profileList.filter((profile) => profile && profile.enabled !== false);
-    const statusBusy =
-      state.systemHealthLoading || state.runtimeLoading || actionBusyMatches("router", "status", "status-refresh");
-    const webServer = state.status.webServer || "Неизвестно";
-    const xrayConfigPath = state.status.xrayConfigPath || "/opt/etc/xray/config.json";
-    const singboxConfigPath = state.status.singboxConfigPath || "/opt/etc/sing-box/config.json";
 
     quickGrid.innerHTML = [
       quickCard(
-        "Маршруты и UI",
-        "Короткая сводка по веб-интерфейсу и рабочим config-файлам движков.",
-        `
-          <div class="engine-inline-chip">
-            <span class="label">Веб-сервер</span>
-            <span class="value mono">${escapeHtml(webServer)}</span>
-          </div>
-          <div class="engine-inline-chip" title="${escapeHtml(xrayConfigPath)}">
-            <span class="label">Xray config</span>
-            <span class="value mono">${escapeHtml(compactPath(xrayConfigPath))}</span>
-          </div>
-          <div class="engine-inline-chip" title="${escapeHtml(singboxConfigPath)}">
-            <span class="label">sing-box config</span>
-            <span class="value mono">${escapeHtml(compactPath(singboxConfigPath))}</span>
-          </div>
-        `,
-        ``
-      ),
-      quickCard(
-        "Система",
-        "Лёгкий снимок по CPU, памяти и самым горячим процессам. На слабом роутере он читается только вручную, когда действительно нужен.",
-        renderSystemHealthChips(),
-        `
-          <button type="button" class="secondary" data-router-action="status-refresh"${
-            state.actionBusy || state.systemHealthLoading || state.runtimeLoading ? " disabled" : ""
-          }>${actionLabel("router", "status-refresh", statusBusy)}</button>
-          <a class="button-like secondary" href="/profiles.html?v=${UI_VERSION}#proxyRuntimePanel">Открыть runtime</a>
-        `
-      ),
-      quickCard(
-        "Профили",
-        "Короткая сводка по ключам и локальным socks-портам.",
+        "Профили и маршруты",
+        "Одна страница для ключей, DNS-маршрутов, ProxyN runtime и полного маршрута устройств.",
         `
           <div class="engine-inline-chip">
             <span class="label">Всего</span>
@@ -707,117 +672,34 @@
             <span class="label">Следующий socks</span>
             <span class="value mono">:${nextFreePort(profileList)}</span>
           </div>
-        `,
-        `
-          <a class="button-like" href="/profiles.html?v=${UI_VERSION}">Открыть профили</a>
-        `
-      ),
-      quickCard(
-        "Устройства",
-        "Отдельный режим для клиентов, которым иногда нужен полный маршрут через один выбранный ProxyN.",
-        `
           <div class="engine-inline-chip chip-muted">
-            <span class="label">Режим</span>
-            <span class="value">full device route</span>
+            <span class="label">Разделы</span>
+            <span class="value">ключи / DNS / клиенты</span>
           </div>
         `,
         `
-          <a class="button-like secondary" href="/profiles.html?v=${UI_VERSION}#clientPoliciesPanel">Открыть клиентов</a>
-        `
+          <a class="button-like" href="/profiles.html?v=${UI_VERSION}">Открыть конфигурации</a>
+        `,
       ),
       quickCard(
         "DNS GitHub Sync",
-        "Экспорт текущих domain-list групп в файл и синхронизация роутера с raw-ссылкой GitHub.",
+        "Страница для выгрузки текущих domain-list групп в GitHub и синхронизации других роутеров из raw-файла.",
         `
           <div class="engine-inline-chip chip-muted">
             <span class="label">Формат</span>
             <span class="value">dns-groups v1</span>
           </div>
           <div class="engine-inline-chip chip-muted">
-            <span class="label">Источник</span>
-            <span class="value">GitHub raw</span>
+            <span class="label">Имена групп</span>
+            <span class="value">сохраняются</span>
           </div>
-        `,
-        `
-          <a class="button-like secondary" href="/dns-sync.html?v=${UI_VERSION}">Открыть синхронизацию</a>
-        `
-      ),
-      quickCard(
-        "ProxyN runtime",
-        "Живое состояние ProxyN теперь не считывается автоматически. Это отдельный снимок по кнопке, чтобы не нагружать слабый роутер при каждом открытии UI.",
-        (() => {
-          const proxies = Array.isArray(state.runtime) ? state.runtime : [];
-          if (state.runtimeLoading && !proxies.length) {
-            return `
-              <div class="engine-inline-chip chip-muted">
-                <span class="label">Runtime</span>
-                <span class="value">считываем...</span>
-              </div>
-            `;
-          }
-          if (!state.statusSnapshotLoaded && !proxies.length) {
-            return `
-              <div class="engine-inline-chip chip-muted">
-                <span class="label">Runtime</span>
-                <span class="value">снимок не считан</span>
-              </div>
-            `;
-          }
-          if (state.runtimeError && !proxies.length) {
-            return `
-              <div class="engine-inline-chip chip-bad" title="${escapeHtml(state.runtimeError)}">
-                <span class="label">Runtime</span>
-                <span class="value">ошибка чтения</span>
-              </div>
-            `;
-          }
-          const active = proxies.filter((proxy) => proxy && (proxy.configuredUp || proxy.enabled || proxy.upstreamPort));
-          const healthy = active.filter((proxy) => proxy && proxy.healthy).length;
-          const broken = active.filter(
-            (proxy) => proxy && (proxy.configuredUp || proxy.enabled) && !proxy.healthy
-          ).length;
-          return `
-            <div class="engine-inline-chip ${broken ? "chip-warn" : "chip-ok"}">
-              <span class="label">Работают</span>
-              <span class="value">${healthy}/${active.length || 0}</span>
-            </div>
-            <div class="engine-inline-chip ${broken ? "chip-bad" : "chip-muted"}">
-              <span class="label">Проблемные</span>
-              <span class="value">${broken}</span>
-            </div>
-          `;
-        })(),
-        `
-          <button type="button" class="secondary" data-router-action="status-refresh"${
-            state.actionBusy || state.systemHealthLoading || state.runtimeLoading ? " disabled" : ""
-          }>${actionLabel("router", "status-refresh", statusBusy)}</button>
-          <a class="button-like secondary" href="/profiles.html?v=${UI_VERSION}#proxyRuntimePanel">Открыть runtime</a>
-        `
-      ),
-      quickCard(
-        "Восстановление",
-        "Отдельно чиним DNS-маршруты и отдельно слой ProxyN/движков, чтобы не смешивать разные аварийные сценарии.",
-        `
           <div class="engine-inline-chip chip-muted">
-            <span class="label">Роутер</span>
-            <span class="value">reset-инструменты</span>
+            <span class="label">GitHub</span>
+            <span class="value">pull / push</span>
           </div>
         `,
         `
-          <button type="button" class="info" data-router-action="dns-refresh"${
-            state.actionBusy ? " disabled" : ""
-          } title="Мягко сверить live DNS-маршруты с сохранённым состоянием и перезапустить dns-proxy intercept">${actionLabel(
-            "router",
-            "dns-refresh",
-            actionBusyMatches("router", "dns", "dns-refresh")
-          )}</button>
-          <button type="button" class="warning" data-router-action="vpn-refresh"${
-            state.actionBusy ? " disabled" : ""
-          } title="Перезапустить только реально используемые движки и мягко обновить VPN-слой">${actionLabel(
-            "router",
-            "vpn-refresh",
-            actionBusyMatches("router", "vpn", "vpn-refresh")
-          )}</button>
+          <a class="button-like secondary" href="/dns-sync.html?v=${UI_VERSION}">Открыть DNS Sync</a>
         `
       ),
     ].join("");

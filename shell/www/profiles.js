@@ -1,6 +1,6 @@
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
-const UI_VERSION = "20260518-1857";
+const UI_VERSION = "20260524-2230";
 const LOCAL_SOCKS_PUBLIC_BIND = "192.168.1.1";
 const LOCAL_SOCKS_INTERNAL_BIND = "127.0.0.1";
 const DIRECT_DNS_ROUTE_TARGET = "ISP";
@@ -2969,7 +2969,11 @@ function renderSummary() {
         </div>
       </div>
       <div class="engine-row-actions summary-row-actions">
-        <button type="button" class="secondary" data-router-action="status-refresh"${statusRefreshDisabled} title="По запросу считать живой CPU / RAM / ProxyN runtime. На слабом роутере это лучше делать вручную, а не при каждом открытии страницы.">${statusRefreshLabel}</button>
+        <button type="button" class="refresh-button${
+          state.systemHealthLoading || state.routerRuntimeLoading ? " is-loading" : ""
+        }" data-router-action="status-refresh"${statusRefreshDisabled} aria-label="${escapeHtml(statusRefreshLabel)}" title="По запросу считать живой CPU / RAM / ProxyN runtime. На слабом роутере это лучше делать вручную, а не при каждом открытии страницы.">${
+          state.systemHealthLoading || state.routerRuntimeLoading ? "⏳" : "♻️"
+        }</button>
       </div>
     </section>
   `;

@@ -33,6 +33,10 @@ body {
   padding: 24px;
 }
 
+body.has-health-widget {
+  min-height: 100vh;
+}
+
 body.modal-open {
   overflow: hidden;
 }
@@ -438,6 +442,10 @@ a {
   flex-wrap: wrap;
 }
 
+.quick-card-actions .button-like {
+  justify-content: center;
+}
+
 .engine-card-head {
   display: flex;
   justify-content: space-between;
@@ -645,6 +653,42 @@ button.ghost {
 
 button.ghost:hover {
   background: rgba(255, 255, 255, 0.05);
+}
+
+button.refresh-button,
+.button-like.refresh-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-width: 44px;
+  height: 42px;
+  padding: 0;
+  border-radius: 12px;
+  background: rgba(21, 143, 99, 0.96);
+  font-size: 20px;
+  line-height: 1;
+}
+
+button.refresh-button:hover,
+.button-like.refresh-button:hover {
+  background: #1aa974;
+}
+
+button.refresh-button.is-loading {
+  animation: pulseStatus 1.2s ease-in-out infinite;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 button:disabled {
@@ -1707,6 +1751,101 @@ textarea {
   color: var(--muted);
 }
 
+.system-health-widget {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 80;
+  width: min(292px, calc(100vw - 28px));
+  border: 1px solid rgba(126, 148, 178, 0.34);
+  border-radius: 14px;
+  background: rgba(20, 28, 40, 0.92);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(12px);
+  padding: 10px;
+}
+
+.system-health-widget-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.system-health-widget-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.system-health-widget-title span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-health-widget-refresh {
+  width: 34px;
+  min-width: 34px;
+  height: 32px;
+  border-radius: 10px;
+  font-size: 17px;
+}
+
+.system-health-widget-grid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.system-health-widget-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(16, 21, 29, 0.6);
+}
+
+.system-health-widget-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.system-health-widget-label span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-health-widget-value {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.system-health-widget-note {
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .inline-code {
   font-family: Consolas, "Courier New", monospace;
   background: rgba(255, 255, 255, 0.06);
@@ -1736,6 +1875,10 @@ textarea {
     padding: 16px;
   }
 
+  body.has-health-widget {
+    padding-top: 116px;
+  }
+
   .split {
     grid-template-columns: 1fr;
   }
@@ -1759,6 +1902,28 @@ textarea {
 
   .engine-row {
     grid-template-columns: 1fr;
+    gap: 12px;
+    padding: 12px;
+  }
+
+  .summary-row {
+    display: grid;
+    overflow: visible;
+  }
+
+  .summary-row-main {
+    display: grid;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .summary-row-bubbles {
+    flex-wrap: wrap;
+  }
+
+  .summary-row-actions {
+    width: 100%;
+    flex-wrap: wrap;
   }
 
   .engine-row-actions-stack {
@@ -1769,6 +1934,16 @@ textarea {
   .action-cluster-service {
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+
+  .engine-row-actions button,
+  .engine-row-actions .button-like {
+    min-width: 0;
+  }
+
+  .engine-row-actions:not(:has(.refresh-button)) button,
+  .engine-row-actions:not(:has(.refresh-button)) .button-like {
+    flex: 1 1 92px;
   }
 
   .dns-bulk-controls {
@@ -1790,6 +1965,18 @@ textarea {
 
   .github-sync-actions button {
     width: 100%;
+  }
+
+  .system-health-widget {
+    top: 8px;
+    right: 10px;
+    left: 10px;
+    width: auto;
+    padding: 9px;
+  }
+
+  .system-health-widget-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .import-bar {
@@ -1868,6 +2055,78 @@ textarea {
 .proxy-runtime-table {
   min-width: 1120px;
   table-layout: fixed;
+}
+
+@media (max-width: 560px) {
+  body {
+    padding: 12px;
+  }
+
+  body.has-health-widget {
+    padding-top: 134px;
+  }
+
+  .hero h1 {
+    font-size: 30px;
+  }
+
+  .hero p {
+    font-size: 15px;
+    line-height: 1.48;
+  }
+
+  .panel {
+    padding: 14px;
+    border-radius: 14px;
+  }
+
+  .quick-grid,
+  .grid.two,
+  .grid.three {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-card {
+    padding: 14px;
+    border-radius: 14px;
+  }
+
+  .quick-card-head h3,
+  .engine-row-title {
+    font-size: 18px;
+  }
+
+  .engine-inline-chip {
+    max-width: 100%;
+  }
+
+  .engine-inline-chip .value {
+    max-width: none;
+  }
+
+  .action-cluster {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .action-cluster button {
+    width: 100%;
+    padding: 10px 8px;
+  }
+
+  .summary-row-actions button:not(.refresh-button),
+  .summary-row-actions .button-like {
+    flex: 1 1 120px;
+  }
+
+  .system-health-widget-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .system-health-widget-row {
+    padding: 6px 7px;
+  }
 }
 
 .proxy-runtime-table th:nth-child(1),

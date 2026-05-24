@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>VPN Routing UI</title>
-  <link rel="stylesheet" href="/app.css?v=20260524-1925">
+  <link rel="stylesheet" href="/app.css?v=20260524-2230">
 </head>
 <body>
   <main class="page">
@@ -23,11 +23,11 @@
         <div>
           <h2>Быстрый доступ</h2>
           <p class="hint">
-            Ссылки на основные страницы менеджера, сводка по сервисам и безопасная проверка обновлений.
+            Только переходы на отдельные страницы конфигураций. Сервисные действия и обновления вынесены ниже.
           </p>
         </div>
         <div class="toolbar-right">
-          <button id="reloadBtn" class="secondary">Обновить состояние</button>
+          <button id="reloadBtn" class="refresh-button" type="button" aria-label="Перечитать состояние" title="Перечитать состояние">♻️</button>
           <button id="checkUpdatesBtn" class="secondary">Проверить обновления</button>
         </div>
       </div>
@@ -47,6 +47,7 @@
     </section>
   </main>
 
-  <script src="/root.js?v=20260524-1925"></script>
+  <script src="/system-health-widget.js?v=20260524-2230"></script>
+  <script src="/root.js?v=20260524-2230"></script>
 </body>
 </html>
