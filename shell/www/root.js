@@ -4,7 +4,7 @@
   const statusRows = document.getElementById("statusRows");
   const reloadBtn = document.getElementById("reloadBtn");
   const checkUpdatesBtn = document.getElementById("checkUpdatesBtn");
-  const UI_VERSION = "20260524-2250";
+  const UI_VERSION = "20260524-2310";
   const state = {
     status: null,
     profiles: [],

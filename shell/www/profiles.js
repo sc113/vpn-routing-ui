@@ -1,6 +1,6 @@
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
-const UI_VERSION = "20260524-2250";
+const UI_VERSION = "20260524-2310";
 const LOCAL_SOCKS_PUBLIC_BIND = "192.168.1.1";
 const LOCAL_SOCKS_INTERNAL_BIND = "127.0.0.1";
 const DIRECT_DNS_ROUTE_TARGET = "ISP";
@@ -725,12 +725,9 @@ function dnsRouteHostSummary(route) {
     return null;
   }
 
-  const visible = includes.slice(0, 8);
-  const moreCount = Math.max(0, includeCount - visible.length);
-  const visibleText = visible.length ? visible.join(", ") : "список доступен после перечитывания";
   return {
-    title: includes.join("\n"),
-    text: `${includeCount} доменов: ${visibleText}${moreCount ? `, + ещё ${moreCount}` : ""}`,
+    title: includes.length ? `В списке ${includeCount} include.` : "Подробный список доступен после перечитывания.",
+    text: `${includeCount} include`,
   };
 }
 
@@ -3104,7 +3101,7 @@ function renderProxyRuntimeTable() {
     if (!state.statusSnapshotLoaded && !state.routerRuntimeLoading && !state.systemHealthLoading) {
       note.className = "runtime-health-note";
       note.textContent =
-        "Живой статус ProxyN сейчас не считывается автоматически. Нажми «Считать статус», когда он действительно нужен.";
+        "Живой статус ProxyN не считывается автоматически. Нажми ♻️, когда нужен снимок.";
       note.hidden = false;
     } else if (systemBusy) {
       note.className = "runtime-health-note is-bad";
@@ -3151,7 +3148,7 @@ function renderProxyRuntimeTable() {
   if (!state.statusSnapshotLoaded && !state.routerRuntimeLoading) {
     body.innerHTML = `
       <tr>
-        <td colspan="8" class="table-empty">Живой runtime пока не считан. Нажми «Считать статус», когда нужен снимок ProxyN.</td>
+        <td colspan="8" class="table-empty">Живой runtime пока не считан. Нажми ♻️, когда нужен снимок ProxyN.</td>
       </tr>
     `;
     return;

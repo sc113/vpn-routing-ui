@@ -58,8 +58,7 @@
   function render(widget, state) {
     const button = widget.querySelector("[data-health-refresh]");
     const body = widget.querySelector("[data-health-body]");
-    const note = widget.querySelector("[data-health-note]");
-    if (!body || !note || !button) return;
+    if (!body || !button) return;
 
     button.disabled = Boolean(state.loading);
     button.classList.toggle("is-loading", Boolean(state.loading));
@@ -67,19 +66,16 @@
 
     if (state.loading && !state.health) {
       body.innerHTML = row("⏳", "Статус", "читаем", "Считываем CPU, load, RAM и процессы.");
-      note.textContent = "Первый снимок загружается.";
       return;
     }
 
     if (state.error && !state.health) {
       body.innerHTML = row("⚠️", "Health", "ошибка", state.error);
-      note.textContent = state.error;
       return;
     }
 
     if (!state.health) {
       body.innerHTML = row("🩺", "Health", "нет данных", "Нажми refresh, чтобы считать состояние.");
-      note.textContent = "Нажми refresh для ручного снимка.";
       return;
     }
 
@@ -91,7 +87,6 @@
       row("⚙️", "NDM", formatPercent(health.ndmCpu, 1), "CPU процесса ndm/KeeneticOS.") +
       row("🚇", "VPN", formatPercent(health.vpnCpu, 1), "Суммарный CPU xray и sing-box.") +
       row("🔀", "ProxyN", formatPercent(health.proxyCpu, 1), "CPU процессов ProxyN.");
-    note.textContent = state.error ? "Последний снимок показан, refresh дал ошибку." : "Снимок обновляется только этой кнопкой.";
   }
 
   async function load(widget, state) {
@@ -128,7 +123,6 @@
         <button class="refresh-button system-health-widget-refresh" type="button" data-health-refresh aria-label="Обновить здоровье роутера" title="Обновить здоровье роутера">♻️</button>
       </div>
       <div class="system-health-widget-grid" data-health-body></div>
-      <div class="system-health-widget-note" data-health-note></div>
     `;
     const hero = document.querySelector(".hero");
     if (hero) {

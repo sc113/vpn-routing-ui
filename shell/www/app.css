@@ -53,7 +53,7 @@ a {
 
 .hero-with-health {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  grid-template-columns: minmax(0, 1fr) minmax(420px, 480px);
   align-items: start;
   gap: 18px;
 }
@@ -74,7 +74,6 @@ a {
   max-width: 860px;
 }
 
-.toolbar,
 .toolbar-right {
   display: flex;
   gap: 10px;
@@ -83,8 +82,20 @@ a {
 }
 
 .toolbar {
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
   margin: 18px 0;
+}
+
+.toolbar > div:first-child {
+  min-width: 0;
+}
+
+.toolbar-right {
+  justify-content: flex-end;
+  justify-self: end;
 }
 
 .panel {
@@ -1760,13 +1771,12 @@ textarea {
 
 .system-health-widget {
   width: 100%;
-  min-height: 220px;
   border: 1px solid rgba(126, 148, 178, 0.34);
   border-radius: 14px;
   background: rgba(20, 28, 40, 0.92);
   box-shadow: 0 12px 26px rgba(0, 0, 0, 0.24);
   backdrop-filter: blur(12px);
-  padding: 10px;
+  padding: 12px;
 }
 
 .system-health-widget-head {
@@ -1780,9 +1790,9 @@ textarea {
 .system-health-widget-title {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   min-width: 0;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 800;
 }
 
@@ -1802,8 +1812,8 @@ textarea {
 
 .system-health-widget-grid {
   display: grid;
-  gap: 6px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .system-health-widget-row {
@@ -1812,7 +1822,7 @@ textarea {
   justify-content: space-between;
   gap: 8px;
   min-width: 0;
-  padding: 7px 8px;
+  padding: 8px 9px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
   background: rgba(16, 21, 29, 0.6);
@@ -1824,7 +1834,7 @@ textarea {
   gap: 5px;
   min-width: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1838,16 +1848,9 @@ textarea {
 
 .system-health-widget-value {
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
   color: var(--text);
-}
-
-.system-health-widget-note {
-  margin-top: 7px;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.35;
 }
 
 .inline-code {
@@ -1896,12 +1899,12 @@ textarea {
   }
 
   .toolbar {
-    flex-direction: column;
-    align-items: stretch;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .toolbar-right {
-    justify-content: flex-start;
+    justify-content: flex-end;
+    justify-self: end;
   }
 
   .engine-row {
@@ -1972,7 +1975,7 @@ textarea {
   }
 
   .system-health-widget-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .import-bar {
