@@ -7,7 +7,7 @@
   <meta http-equiv="Expires" content="0">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DNS GitHub Sync</title>
-  <link rel="stylesheet" href="/app.css?v=20260524-1905">
+  <link rel="stylesheet" href="/app.css?v=20260524-2045">
 </head>
 <body>
   <main class="page">
@@ -60,9 +60,35 @@
     <section class="panel">
       <div class="toolbar">
         <div>
+          <h2>Отправить в GitHub</h2>
+          <p class="hint">
+            Кнопка ниже берёт актуальный снимок прямо с роутера и коммитит его в GitHub по raw URL выше. Нужен fine-grained
+            token с правом <span class="inline-code">Contents: Read and write</span> для выбранного репозитория. Отправка
+            работает для файла в репозитории GitHub; Gist можно использовать только как источник для чтения.
+          </p>
+        </div>
+      </div>
+
+      <div class="github-sync-form">
+        <div class="field-stack">
+          <label for="githubTokenInput">GitHub token</label>
+          <input id="githubTokenInput" type="password" autocomplete="off" placeholder="github_pat_...">
+        </div>
+        <div class="github-sync-actions">
+          <button id="saveTokenBtn" class="secondary" type="button">Сохранить token</button>
+          <button id="pushCurrentBtn" class="success" type="button">Отправить текущий снимок</button>
+        </div>
+      </div>
+
+      <p id="pushHint" class="hint"></p>
+    </section>
+
+    <section class="panel">
+      <div class="toolbar">
+        <div>
           <h2>Текущий снимок роутера</h2>
           <p class="hint">
-            Это содержимое можно положить в GitHub как обычный текстовый файл. В него входят описание группы,
+            Это содержимое можно положить в GitHub как обычный текстовый файл. В него входят название/описание группы,
             все <span class="inline-code">include</span> и текущий DNS-маршрут группы.
           </p>
         </div>
@@ -91,7 +117,7 @@
             <tr>
               <th class="col-num">#</th>
               <th>Список</th>
-              <th>Описание</th>
+              <th>Название</th>
               <th>Include</th>
               <th>Маршрут</th>
             </tr>
@@ -102,6 +128,6 @@
     </section>
   </main>
 
-  <script src="/dns-sync.js?v=20260524-1905"></script>
+  <script src="/dns-sync.js?v=20260524-2045"></script>
 </body>
 </html>

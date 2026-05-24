@@ -4,6 +4,7 @@
     loading: false,
     exportText: "",
     rawUrl: "",
+    tokenSaved: false,
   };
 
   function $(id) {
@@ -96,6 +97,10 @@
     if (blobMatch) {
       return `https://raw.githubusercontent.com/${blobMatch[1]}/${blobMatch[2]}/${blobMatch[3]}/${blobMatch[4]}`;
     }
+    const rawMatch = text.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/raw\/([^/]+)\/(.+)$/);
+    if (rawMatch) {
+      return `https://raw.githubusercontent.com/${rawMatch[1]}/${rawMatch[2]}/${rawMatch[3]}/${rawMatch[4]}`;
+    }
     return text;
   }
 
@@ -109,7 +114,16 @@
 
   function setBusy(busy) {
     state.loading = busy;
-    ["reloadBtn", "saveUrlBtn", "testFetchBtn", "applyBtn", "copyExportBtn", "downloadExportBtn"].forEach((id) => {
+    [
+      "reloadBtn",
+      "saveUrlBtn",
+      "testFetchBtn",
+      "applyBtn",
+      "saveTokenBtn",
+      "pushCurrentBtn",
+      "copyExportBtn",
+      "downloadExportBtn",
+    ].forEach((id) => {
       const element = $(id);
       if (element) element.disabled = busy;
     });
@@ -122,6 +136,9 @@
     const includeCount = Number(payload && payload.includeCount) || 0;
     const routeCount = Number(payload && payload.routeCount) || 0;
     const rawUrl = String((payload && payload.rawUrl) || state.rawUrl || "").trim();
+    const tokenSaved =
+      typeof (payload && payload.tokenSaved) === "boolean" ? payload.tokenSaved : Boolean(state.tokenSaved);
+    state.tokenSaved = tokenSaved;
     container.innerHTML = `
       <div class="engine-inline-chip ${groupCount ? "chip-ok" : "chip-muted"}">
         <span class="label">Группы</span>
@@ -139,7 +156,27 @@
         <span class="label">GitHub</span>
         <span class="value">${escapeHtml(rawUrl ? "URL задан" : "URL не задан")}</span>
       </div>
+      <div class="engine-inline-chip ${tokenSaved ? "chip-muted" : "chip-warn"}">
+        <span class="label">Token</span>
+        <span class="value">${escapeHtml(tokenSaved ? "сохранён" : "не задан")}</span>
+      </div>
     `;
+    renderPushHint(rawUrl, tokenSaved);
+  }
+
+  function renderPushHint(rawUrl, tokenSaved) {
+    const hint = $("pushHint");
+    if (!hint) return;
+    const url = String(rawUrl || state.rawUrl || "").trim();
+    const target = parseGithubTarget(url);
+    const parts = [];
+    if (target) {
+      parts.push(`Цель: ${target.owner}/${target.repo}:${target.branch}/${target.path}`);
+    } else {
+      parts.push("Цель GitHub пока не распознана: укажи raw URL на файл в репозитории.");
+    }
+    parts.push(tokenSaved ? "Token сохранён на роутере." : "Token пока не сохранён.");
+    hint.textContent = parts.join(" ");
   }
 
   function renderGroupsTable() {
@@ -166,9 +203,19 @@
       .join("");
   }
 
+  function currentExportMetrics() {
+    const groups = parseExportText(state.exportText);
+    return {
+      groupCount: groups.length,
+      includeCount: groups.reduce((sum, group) => sum + group.includeCount, 0),
+      routeCount: groups.filter((group) => group.route).length,
+    };
+  }
+
   function renderExport(payload) {
     state.exportText = String((payload && payload.exportText) || "");
     state.rawUrl = String((payload && payload.rawUrl) || "").trim();
+    state.tokenSaved = Boolean(payload && payload.tokenSaved);
     if ($("exportText")) {
       $("exportText").value = state.exportText;
     }
@@ -177,6 +224,18 @@
     }
     renderStats(payload || {});
     renderGroupsTable();
+  }
+
+  function parseGithubTarget(url) {
+    const raw = normalizeGithubUrl(url);
+    const match = raw.match(/^https:\/\/raw\.githubusercontent\.com\/([^/]+)\/([^/]+)\/([^/]+)\/(.+)$/);
+    if (!match) return null;
+    return {
+      owner: match[1],
+      repo: match[2],
+      branch: match[3],
+      path: match[4],
+    };
   }
 
   async function loadStatus(message) {
@@ -208,8 +267,81 @@
         body: url,
       });
       state.rawUrl = data.rawUrl || url;
-      renderStats({ rawUrl: state.rawUrl, groupCount: parseExportText(state.exportText).length });
+      renderStats(Object.assign({}, currentExportMetrics(), { rawUrl: state.rawUrl, tokenSaved: state.tokenSaved }));
       showBanner("ok", data.message || "GitHub URL сохранён.");
+    } catch (error) {
+      showBanner("error", error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveToken() {
+    const token = $("githubTokenInput") ? $("githubTokenInput").value.trim() : "";
+    if (!token) {
+      showBanner("error", "Вставь GitHub token перед сохранением.");
+      return;
+    }
+    setBusy(true);
+    showBanner("warn", "Сохраняем GitHub token на роутере...");
+    try {
+      const data = await fetchJson(API_URL + "?action=save-token", {
+        method: "POST",
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+        body: token,
+      });
+      state.tokenSaved = true;
+      if ($("githubTokenInput")) {
+        $("githubTokenInput").value = "";
+      }
+      renderStats(Object.assign({}, currentExportMetrics(), { rawUrl: state.rawUrl, tokenSaved: true }));
+      showBanner("ok", data.message || "GitHub token сохранён.");
+    } catch (error) {
+      showBanner("error", error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function pushCurrentToGithub() {
+    const url = currentUrl();
+    const token = $("githubTokenInput") ? $("githubTokenInput").value.trim() : "";
+    const target = parseGithubTarget(url);
+    if (!target) {
+      showBanner("error", "Укажи raw.githubusercontent.com URL на файл в репозитории.");
+      return;
+    }
+    if (!token && !state.tokenSaved) {
+      showBanner("error", "Сначала вставь token или сохрани его на роутере.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Отправить текущий снимок DNS-групп с роутера в ${target.owner}/${target.repo}:${target.branch}/${target.path}?`
+      )
+    ) {
+      return;
+    }
+
+    setBusy(true);
+    showBanner("warn", "Отправляем актуальные DNS-группы с роутера в GitHub...");
+    try {
+      const body = [url, token].join("\n");
+      const data = await fetchJson(API_URL + "?action=push-current", {
+        method: "POST",
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+        body,
+      });
+      state.rawUrl = data.rawUrl || url;
+      state.tokenSaved = Boolean(data.tokenSaved || state.tokenSaved);
+      if ($("githubTokenInput")) {
+        $("githubTokenInput").value = "";
+      }
+      await loadStatus(
+        `${data.message || "Снимок отправлен в GitHub."} Групп: ${data.groupCount || 0}, include: ${
+          data.includeCount || 0
+        }.`
+      );
     } catch (error) {
       showBanner("error", error.message);
     } finally {
@@ -301,8 +433,10 @@
   document.addEventListener("DOMContentLoaded", function () {
     if ($("reloadBtn")) $("reloadBtn").addEventListener("click", () => loadStatus("DNS-группы перечитаны."));
     if ($("saveUrlBtn")) $("saveUrlBtn").addEventListener("click", saveUrl);
+    if ($("saveTokenBtn")) $("saveTokenBtn").addEventListener("click", saveToken);
     if ($("testFetchBtn")) $("testFetchBtn").addEventListener("click", testFetch);
     if ($("applyBtn")) $("applyBtn").addEventListener("click", applyGithubSync);
+    if ($("pushCurrentBtn")) $("pushCurrentBtn").addEventListener("click", pushCurrentToGithub);
     if ($("downloadExportBtn")) $("downloadExportBtn").addEventListener("click", downloadExport);
     if ($("copyExportBtn")) $("copyExportBtn").addEventListener("click", copyExport);
     loadStatus();

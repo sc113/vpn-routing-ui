@@ -43,12 +43,60 @@ b64_encode() {
   fi
 }
 
+b64_encode_file() {
+  if command -v base64 >/dev/null 2>&1; then
+    base64 "$1" | tr -d '\n'
+  else
+    fail "На роутере нет base64" "Для отправки файла в GitHub нужен base64."
+  fi
+}
+
 b64_decode() {
   if command -v base64 >/dev/null 2>&1; then
     printf '%s' "$1" | base64 -d 2>/dev/null || printf ''
   else
     printf '%s' "$1"
   fi
+}
+
+parse_github_target() {
+  raw_url="$1"
+  GH_OWNER=""
+  GH_REPO=""
+  GH_BRANCH=""
+  GH_PATH=""
+
+  case "$raw_url" in
+    https://raw.githubusercontent.com/*)
+      rest=${raw_url#https://raw.githubusercontent.com/}
+      GH_OWNER=${rest%%/*}
+      rest=${rest#*/}
+      GH_REPO=${rest%%/*}
+      rest=${rest#*/}
+      GH_BRANCH=${rest%%/*}
+      GH_PATH=${rest#*/}
+      ;;
+    https://github.com/*/blob/*)
+      rest=${raw_url#https://github.com/}
+      GH_OWNER=${rest%%/*}
+      rest=${rest#*/}
+      GH_REPO=${rest%%/*}
+      rest=${rest#*/blob/}
+      GH_BRANCH=${rest%%/*}
+      GH_PATH=${rest#*/}
+      ;;
+    https://github.com/*/raw/*)
+      rest=${raw_url#https://github.com/}
+      GH_OWNER=${rest%%/*}
+      rest=${rest#*/}
+      GH_REPO=${rest%%/*}
+      rest=${rest#*/raw/}
+      GH_BRANCH=${rest%%/*}
+      GH_PATH=${rest#*/}
+      ;;
+  esac
+
+  [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ] && [ -n "$GH_BRANCH" ] && [ -n "$GH_PATH" ]
 }
 
 quote_ndmc_string() {
@@ -148,7 +196,7 @@ acquire_lock() {
 }
 
 cleanup() {
-  rm -f "$RUNCFG_FILE" "$VERIFY_FILE" "$GROUPS_FILE" "$ROUTES_FILE" "$EXPORT_FILE" "$EXPORT_FILE.raw" "$REMOTE_FILE" "$REMOTE_FILE.body" "$DESIRED_GROUPS_FILE" "$DESIRED_INCLUDES_FILE" "$DESIRED_ROUTES_FILE" "$DESIRED_DESCRIPTIONS_FILE" "$STATE_TMP_FILE" "$CMD_FILE" "$FETCH_ERROR_FILE"
+  rm -f "$RUNCFG_FILE" "$VERIFY_FILE" "$GROUPS_FILE" "$ROUTES_FILE" "$EXPORT_FILE" "$EXPORT_FILE.raw" "$REMOTE_FILE" "$REMOTE_FILE.body" "$DESIRED_GROUPS_FILE" "$DESIRED_INCLUDES_FILE" "$DESIRED_ROUTES_FILE" "$DESIRED_DESCRIPTIONS_FILE" "$STATE_TMP_FILE" "$CMD_FILE" "$FETCH_ERROR_FILE" "$GITHUB_RESPONSE_FILE" "$GITHUB_PAYLOAD_FILE"
   if [ "${LOCK_HELD:-0}" = "1" ]; then
     rm -f "$LOCK_DIR/pid"
     rmdir "$LOCK_DIR" 2>/dev/null
@@ -172,6 +220,8 @@ export_dns_groups() {
   route_lines_from_config "$RUNCFG_FILE" > "$ROUTES_FILE"
   : > "$EXPORT_FILE"
   printf '# vpn-routing-ui dns-groups v1\n' >> "$EXPORT_FILE"
+  printf '# G|domain-listN|base64(name/description)|route-target\n' >> "$EXPORT_FILE"
+  printf '# I|domain-listN|include-value\n' >> "$EXPORT_FILE"
   printf '# generated %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)" >> "$EXPORT_FILE"
 
   awk '
@@ -429,14 +479,100 @@ apply_remote_groups() {
   exit 0
 }
 
+push_current_to_github() {
+  raw_url="$1"
+  github_token="$2"
+  [ -n "$raw_url" ] || raw_url=$(cat "$CONFIG_FILE" 2>/dev/null)
+  [ -n "$github_token" ] || github_token=$(cat "$TOKEN_FILE" 2>/dev/null)
+
+  [ -n "$raw_url" ] || fail "GitHub raw URL не задан" "Укажи raw URL на файл в репозитории."
+  [ -n "$github_token" ] || fail "GitHub token не задан" "Нужен token с правом Contents: Read and write."
+  if ! parse_github_target "$raw_url"; then
+    fail "Не удалось распознать GitHub URL" "Для отправки нужен файл в репозитории GitHub, не Gist: $raw_url"
+  fi
+
+  if ! command -v curl >/dev/null 2>&1; then
+    fail "На роутере нет curl" "Для отправки файла в GitHub нужен curl."
+  fi
+
+  read_running_config
+  export_dns_groups
+
+  group_count=$(awk -F'|' '$1 == "G" { count++ } END { print count + 0 }' "$EXPORT_FILE")
+  include_count=$(awk -F'|' '$1 == "I" { count++ } END { print count + 0 }' "$EXPORT_FILE")
+  route_count=$(awk -F'|' '$1 == "G" && $4 != "" { count++ } END { print count + 0 }' "$EXPORT_FILE")
+  content_b64=$(b64_encode_file "$EXPORT_FILE")
+  api_url="https://api.github.com/repos/$GH_OWNER/$GH_REPO/contents/$GH_PATH"
+
+  get_code=$(curl -sS -L \
+    -H "Authorization: Bearer $github_token" \
+    -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    -H "User-Agent: vpn-routing-ui" \
+    -o "$GITHUB_RESPONSE_FILE" \
+    -w "%{http_code}" \
+    "$api_url?ref=$GH_BRANCH" 2>"$FETCH_ERROR_FILE" || true)
+
+  existing_sha=""
+  if [ "$get_code" = "200" ]; then
+    existing_sha=$(sed -n 's/.*"sha"[ ]*:[ ]*"\([^"]*\)".*/\1/p' "$GITHUB_RESPONSE_FILE" | head -n 1)
+  elif [ "$get_code" = "404" ]; then
+    existing_sha=""
+  else
+    fail "GitHub не дал прочитать текущий файл" "HTTP $get_code: $(cat "$GITHUB_RESPONSE_FILE" 2>/dev/null) $(cat "$FETCH_ERROR_FILE" 2>/dev/null)"
+  fi
+
+  message="Update VPN routing DNS groups from router"
+  {
+    printf '{"message":"%s",' "$(json_escape "$message")"
+    printf '"content":"%s",' "$content_b64"
+    printf '"branch":"%s"' "$(json_escape "$GH_BRANCH")"
+    if [ -n "$existing_sha" ]; then
+      printf ',"sha":"%s"' "$(json_escape "$existing_sha")"
+    fi
+    printf '}'
+  } > "$GITHUB_PAYLOAD_FILE"
+
+  put_code=$(curl -sS -L -X PUT \
+    -H "Authorization: Bearer $github_token" \
+    -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    -H "User-Agent: vpn-routing-ui" \
+    -H "Content-Type: application/json" \
+    -o "$GITHUB_RESPONSE_FILE" \
+    -w "%{http_code}" \
+    --data-binary "@$GITHUB_PAYLOAD_FILE" \
+    "$api_url" 2>"$FETCH_ERROR_FILE" || true)
+
+  case "$put_code" in
+    200|201)
+      ;;
+    *)
+      fail "GitHub не принял обновление файла" "HTTP $put_code: $(cat "$GITHUB_RESPONSE_FILE" 2>/dev/null) $(cat "$FETCH_ERROR_FILE" 2>/dev/null)"
+      ;;
+  esac
+
+  printf '%s\n' "$raw_url" > "$CONFIG_FILE" || fail "Не удалось сохранить GitHub URL" "$CONFIG_FILE"
+  html_url=$(sed -n 's/.*"html_url"[ ]*:[ ]*"\([^"]*\)".*/\1/p' "$GITHUB_RESPONSE_FILE" | head -n 1)
+  token_saved=false
+  [ -s "$TOKEN_FILE" ] && token_saved=true
+
+  printf '{"ok":true,"message":"Актуальный снимок DNS-групп отправлен в GitHub.","rawUrl":"%s","htmlUrl":"%s","owner":"%s","repo":"%s","branch":"%s","path":"%s","groupCount":%s,"includeCount":%s,"routeCount":%s,"tokenSaved":%s}' \
+    "$(json_escape "$raw_url")" "$(json_escape "$html_url")" "$(json_escape "$GH_OWNER")" "$(json_escape "$GH_REPO")" "$(json_escape "$GH_BRANCH")" "$(json_escape "$GH_PATH")" "$group_count" "$include_count" "$route_count" "$token_saved"
+  cleanup
+  exit 0
+}
+
 print_status_json() {
   export_text=$(cat "$EXPORT_FILE" 2>/dev/null)
   group_count=$(awk -F'|' '$1 == "G" { count++ } END { print count + 0 }' "$EXPORT_FILE")
   include_count=$(awk -F'|' '$1 == "I" { count++ } END { print count + 0 }' "$EXPORT_FILE")
   route_count=$(awk -F'|' '$1 == "G" && $4 != "" { count++ } END { print count + 0 }' "$EXPORT_FILE")
   saved_url=$(cat "$CONFIG_FILE" 2>/dev/null)
-  printf '{"ok":true,"rawUrl":"%s","groupCount":%s,"includeCount":%s,"routeCount":%s,"exportText":"%s"}' \
-    "$(json_escape "$saved_url")" "$group_count" "$include_count" "$route_count" "$(json_escape "$export_text")"
+  token_saved=false
+  [ -s "$TOKEN_FILE" ] && token_saved=true
+  printf '{"ok":true,"rawUrl":"%s","tokenSaved":%s,"groupCount":%s,"includeCount":%s,"routeCount":%s,"exportText":"%s"}' \
+    "$(json_escape "$saved_url")" "$token_saved" "$group_count" "$include_count" "$route_count" "$(json_escape "$export_text")"
 }
 
 echo "Content-Type: application/json"
@@ -451,6 +587,7 @@ PATH_HELPER=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)/bin/ui-paths.sh
 PROFILE_DIR="${VPN_ROUTING_UI_STATE_DIR:-/opt/etc/vpn-routing-ui}"
 BACKUP_DIR="$PROFILE_DIR/backups"
 CONFIG_FILE="$PROFILE_DIR/dns-github-sync.url"
+TOKEN_FILE="$PROFILE_DIR/dns-github-sync.token"
 ROUTE_STATE_FILE="$PROFILE_DIR/dns-routes.state"
 LOCK_DIR="$PROFILE_DIR/dns-routes.lock"
 RUNCFG_FILE="/opt/tmp/router-dns-github-running-$$.txt"
@@ -466,6 +603,8 @@ DESIRED_DESCRIPTIONS_FILE="/opt/tmp/router-dns-github-desired-descriptions-$$.tx
 STATE_TMP_FILE="/opt/tmp/router-dns-github-state-$$.txt"
 CMD_FILE="/opt/tmp/router-dns-github-cmd-$$.txt"
 FETCH_ERROR_FILE="/opt/tmp/router-dns-github-fetch-$$.txt"
+GITHUB_RESPONSE_FILE="/opt/tmp/router-dns-github-response-$$.json"
+GITHUB_PAYLOAD_FILE="/opt/tmp/router-dns-github-payload-$$.json"
 LOCK_HELD=0
 
 mkdir -p "$PROFILE_DIR" "$BACKUP_DIR" /opt/tmp
@@ -480,6 +619,23 @@ case "$action" in
     printf '%s\n' "$raw_url" > "$CONFIG_FILE" || fail "Не удалось сохранить GitHub URL" "$CONFIG_FILE"
     printf '{"ok":true,"message":"GitHub URL сохранён.","rawUrl":"%s"}' "$(json_escape "$raw_url")"
     cleanup
+    ;;
+  save-token)
+    cat > "$REMOTE_FILE"
+    token=$(sed 's/^[ \t]*//; s/[ \t]*$//' "$REMOTE_FILE")
+    [ -n "$token" ] || fail "GitHub token пустой" "Вставь token перед сохранением."
+    umask 077
+    printf '%s\n' "$token" > "$TOKEN_FILE" || fail "Не удалось сохранить GitHub token" "$TOKEN_FILE"
+    chmod 600 "$TOKEN_FILE" 2>/dev/null || true
+    printf '{"ok":true,"message":"GitHub token сохранён на роутере.","tokenSaved":true}'
+    cleanup
+    ;;
+  push-current)
+    cat > "$REMOTE_FILE.body"
+    raw_url=$(sed -n '1p' "$REMOTE_FILE.body" | sed 's/^[ \t]*//; s/[ \t]*$//')
+    token=$(sed -n '2p' "$REMOTE_FILE.body" | sed 's/^[ \t]*//; s/[ \t]*$//')
+    rm -f "$REMOTE_FILE.body"
+    push_current_to_github "$raw_url" "$token"
     ;;
   fetch|apply)
     cat > "$REMOTE_FILE.body"
