@@ -998,16 +998,23 @@ textarea {
   background: rgba(20, 26, 37, 0.5);
 }
 
+.dns-bulk-bar {
+  margin: -4px 0 14px;
+}
+
 .dns-bulk-label {
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
   line-height: 1.35;
+  white-space: nowrap;
 }
 
 .dns-bulk-select {
   min-width: 220px;
   width: auto;
+  flex: 1 1 240px;
+  max-width: 360px;
 }
 
 .dns-routes-table tbody tr {
@@ -1970,8 +1977,13 @@ textarea {
     align-items: stretch;
   }
 
+  .dns-bulk-label {
+    white-space: normal;
+  }
+
   .dns-bulk-select {
     width: 100%;
+    max-width: none;
   }
 
   .github-sync-form {

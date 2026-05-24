@@ -7,7 +7,7 @@
   <meta http-equiv="Expires" content="0">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>VPN Routing UI</title>
-  <link rel="stylesheet" href="/app.css?v=20260524-2325">
+  <link rel="stylesheet" href="/app.css?v=20260524-2335">
 </head>
 <body>
   <main class="page">
@@ -102,13 +102,6 @@
           </p>
         </div>
         <div class="toolbar-right">
-          <div class="dns-bulk-controls">
-            <label class="dns-bulk-label" for="dnsBulkProfileSelect">Массово назначить все активные маршруты на</label>
-            <select id="dnsBulkProfileSelect" class="dns-bulk-select">
-              <option value="">Выбери профиль</option>
-            </select>
-            <button id="dnsBulkApplyBtn" class="secondary" type="button">Переопределить назначенные</button>
-          </div>
           <a
             class="button-like ghost"
             href="http://192.168.1.1/staticRoutes/dns"
@@ -116,6 +109,14 @@
             rel="noreferrer noopener"
           >Открыть в Keenetic</a>
         </div>
+      </div>
+
+      <div class="dns-bulk-controls dns-bulk-bar">
+        <label class="dns-bulk-label" for="dnsBulkProfileSelect">Массово назначить активные маршруты</label>
+        <select id="dnsBulkProfileSelect" class="dns-bulk-select">
+          <option value="">Выбери профиль</option>
+        </select>
+        <button id="dnsBulkApplyBtn" class="secondary" type="button">Переопределить назначенные</button>
       </div>
 
       <div class="table-shell">
@@ -555,8 +556,8 @@
     </div>
   </div>
 
-  <script src="/system-health-widget.js?v=20260524-2325"></script>
-  <script src="/profiles.js?v=20260524-2325"></script>
+  <script src="/system-health-widget.js?v=20260524-2335"></script>
+  <script src="/profiles.js?v=20260524-2335"></script>
 </body>
 </html>
 
