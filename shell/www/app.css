@@ -33,10 +33,6 @@ body {
   padding: 24px;
 }
 
-body.has-health-widget {
-  min-height: 100vh;
-}
-
 body.modal-open {
   overflow: hidden;
 }
@@ -53,6 +49,17 @@ a {
 
 .hero {
   margin-bottom: 22px;
+}
+
+.hero-with-health {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  align-items: start;
+  gap: 18px;
+}
+
+.hero-copy {
+  min-width: 0;
 }
 
 .hero h1 {
@@ -1752,15 +1759,12 @@ textarea {
 }
 
 .system-health-widget {
-  position: fixed;
-  top: 14px;
-  right: 14px;
-  z-index: 80;
-  width: min(292px, calc(100vw - 28px));
+  width: 100%;
+  min-height: 220px;
   border: 1px solid rgba(126, 148, 178, 0.34);
   border-radius: 14px;
   background: rgba(20, 28, 40, 0.92);
-  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.34);
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.24);
   backdrop-filter: blur(12px);
   padding: 10px;
 }
@@ -1875,8 +1879,8 @@ textarea {
     padding: 16px;
   }
 
-  body.has-health-widget {
-    padding-top: 116px;
+  .hero-with-health {
+    grid-template-columns: 1fr;
   }
 
   .split {
@@ -1967,14 +1971,6 @@ textarea {
     width: 100%;
   }
 
-  .system-health-widget {
-    top: 8px;
-    right: 10px;
-    left: 10px;
-    width: auto;
-    padding: 9px;
-  }
-
   .system-health-widget-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -2060,10 +2056,6 @@ textarea {
 @media (max-width: 560px) {
   body {
     padding: 12px;
-  }
-
-  body.has-health-widget {
-    padding-top: 134px;
   }
 
   .hero h1 {

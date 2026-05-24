@@ -4,7 +4,7 @@
   const statusRows = document.getElementById("statusRows");
   const reloadBtn = document.getElementById("reloadBtn");
   const checkUpdatesBtn = document.getElementById("checkUpdatesBtn");
-  const UI_VERSION = "20260524-2230";
+  const UI_VERSION = "20260524-2250";
   const state = {
     status: null,
     profiles: [],
@@ -74,6 +74,7 @@
         one: toNumber(load.one),
         five: toNumber(load.five),
         fifteen: toNumber(load.fifteen),
+        onePercent: load.onePercent == null ? toNumber(load.one) * 100 : toNumber(load.onePercent),
         running: String(load.running || "").trim(),
       },
       memory: {
@@ -184,14 +185,15 @@
       `;
     }
     const health = state.systemHealth;
+    const cpuBusy = Math.max(0, Math.min(100, 100 - toNumber(health.cpu.idle)));
     return `
-      <div class="engine-inline-chip ${healthChipClass("idle", health.cpu.idle)}" title="${escapeHtml(healthMetricTitle("idle", health))}">
-        <span class="label">CPU свободно</span>
-        <span class="value">${escapeHtml(formatPercent(health.cpu.idle))}</span>
+      <div class="engine-inline-chip ${healthChipClass("process", cpuBusy)}" title="${escapeHtml("Занятый CPU роутера. Чем меньше, тем спокойнее.")}">
+        <span class="label">CPU занято</span>
+        <span class="value">${escapeHtml(formatPercent(cpuBusy))}</span>
       </div>
-      <div class="engine-inline-chip ${healthChipClass("load", health.load.one)}" title="${escapeHtml(healthMetricTitle("load", health))}">
-        <span class="label">Нагрузка 1м</span>
-        <span class="value">${escapeHtml(health.load.one.toFixed(2))}</span>
+      <div class="engine-inline-chip ${healthChipClass("process", health.load.onePercent)}" title="${escapeHtml("Load average за 1 минуту в процентах от числа CPU-ядер.")}">
+        <span class="label">Load 1м</span>
+        <span class="value">${escapeHtml(formatPercent(health.load.onePercent, 1))}</span>
       </div>
       <div class="engine-inline-chip ${healthChipClass("process", health.processes.ndmCpu)}" title="${escapeHtml(healthMetricTitle("ndm", health))}">
         <span class="label">KeeneticOS</span>

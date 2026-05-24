@@ -34,6 +34,11 @@ load_one=$(awk '{ print $1 }' /proc/loadavg 2>/dev/null)
 load_five=$(awk '{ print $2 }' /proc/loadavg 2>/dev/null)
 load_fifteen=$(awk '{ print $3 }' /proc/loadavg 2>/dev/null)
 load_running=$(awk '{ print $4 }' /proc/loadavg 2>/dev/null)
+cpu_cores=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
+[ "${cpu_cores:-0}" -gt 0 ] 2>/dev/null || cpu_cores=1
+load_one_percent=$(awk -v load="${load_one:-0}" -v cores="${cpu_cores:-1}" 'BEGIN { if (cores > 0) printf "%.1f", (load * 100) / cores; else printf "0" }')
+load_five_percent=$(awk -v load="${load_five:-0}" -v cores="${cpu_cores:-1}" 'BEGIN { if (cores > 0) printf "%.1f", (load * 100) / cores; else printf "0" }')
+load_fifteen_percent=$(awk -v load="${load_fifteen:-0}" -v cores="${cpu_cores:-1}" 'BEGIN { if (cores > 0) printf "%.1f", (load * 100) / cores; else printf "0" }')
 
 cpu_line=$(grep '^CPU:' "$TOP_FILE" 2>/dev/null | head -n 1)
 cpu_user=$(printf '%s\n' "$cpu_line" | awk '
@@ -90,10 +95,14 @@ proxy_cpu=$(awk '$0 ~ /hev-socks5-tunnel/ { sum += $8 } END { printf "%.1f", sum
 printf '{'
 printf '"ok":true,'
 printf '"sampledAt":"%s",' "$(json_escape "$(date '+%Y-%m-%d %H:%M:%S %z' 2>/dev/null)")"
-printf '"load":{"one":%s,"five":%s,"fifteen":%s,"running":"%s"},' \
+printf '"load":{"one":%s,"five":%s,"fifteen":%s,"onePercent":%s,"fivePercent":%s,"fifteenPercent":%s,"cores":%s,"running":"%s"},' \
   "$(num_or_zero "$load_one")" \
   "$(num_or_zero "$load_five")" \
   "$(num_or_zero "$load_fifteen")" \
+  "$(num_or_zero "$load_one_percent")" \
+  "$(num_or_zero "$load_five_percent")" \
+  "$(num_or_zero "$load_fifteen_percent")" \
+  "$(num_or_zero "$cpu_cores")" \
   "$(json_escape "$load_running")"
 printf '"cpu":{"user":%s,"system":%s,"idle":%s,"softirq":%s},' \
   "$(num_or_zero "$cpu_user")" \

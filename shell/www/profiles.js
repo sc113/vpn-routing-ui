@@ -1,6 +1,6 @@
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
-const UI_VERSION = "20260524-2230";
+const UI_VERSION = "20260524-2250";
 const LOCAL_SOCKS_PUBLIC_BIND = "192.168.1.1";
 const LOCAL_SOCKS_INTERNAL_BIND = "127.0.0.1";
 const DIRECT_DNS_ROUTE_TARGET = "ISP";
@@ -2809,67 +2809,8 @@ function renderSummary() {
   const dnsRefreshLabel = state.dnsRefreshInFlight ? "DNS reset..." : "DNS reset";
   const vpnRefreshDisabled = actionBusy ? " disabled" : "";
   const vpnRefreshLabel = state.vpnRefreshInFlight ? "VPN reset..." : "VPN reset";
-  const statusRefreshDisabled =
-    actionBusy || state.systemHealthLoading || state.routerRuntimeLoading ? " disabled" : "";
-  const statusRefreshLabel =
-    state.systemHealthLoading || state.routerRuntimeLoading
-      ? "Считываем..."
-      : state.statusSnapshotLoaded
-        ? "Перечитать статус"
-        : "Считать статус";
   const xrayConfigPath = status.xrayConfigPath || "/opt/etc/xray/config.json";
   const singboxConfigPath = status.singboxConfigPath || "/opt/etc/sing-box/config.json";
-  const runtimeProxies = normalizeRouterProxyList(state.routerProxies).filter(
-    (proxy) => proxy.configuredUp || proxy.enabled || proxy.upstreamPort
-  );
-  const healthyRuntimeCount = runtimeProxies.filter((proxy) => proxy.healthy).length;
-  const unhealthyRuntimeCount = runtimeProxies.filter(
-    (proxy) => (proxy.configuredUp || proxy.enabled) && !proxy.healthy
-  ).length;
-  const health = state.systemHealth;
-  const systemHealthHtml = state.systemHealthLoading && !health
-    ? `
-          <div class="engine-inline-chip chip-muted">
-            <span class="label">Система</span>
-            <span class="value">считываем...</span>
-          </div>
-      `
-    : state.systemHealthError && !health
-      ? `
-          <div class="engine-inline-chip chip-bad" title="${escapeHtml(state.systemHealthError)}">
-            <span class="label">Система</span>
-            <span class="value">ошибка health</span>
-          </div>
-        `
-      : health
-        ? `
-          <div class="engine-inline-chip ${healthChipClass("idle", health.cpu.idle)}" title="${escapeHtml(healthMetricTitle("idle", health))}">
-            <span class="label">CPU свободно</span>
-            <span class="value">${escapeHtml(formatPercent(health.cpu.idle))}</span>
-          </div>
-          <div class="engine-inline-chip ${healthChipClass("load", health.load.one)}" title="${escapeHtml(healthMetricTitle("load", health))}">
-            <span class="label">Нагрузка 1м</span>
-            <span class="value">${escapeHtml(health.load.one.toFixed(2))}</span>
-          </div>
-          <div class="engine-inline-chip ${healthChipClass("process", health.processes.ndmCpu)}" title="${escapeHtml(healthMetricTitle("ndm", health))}">
-            <span class="label">KeeneticOS</span>
-            <span class="value">${escapeHtml(formatPercent(health.processes.ndmCpu, 1))}</span>
-          </div>
-          <div class="engine-inline-chip ${healthChipClass("process", health.processes.singboxCpu)}" title="${escapeHtml(healthMetricTitle("singbox", health))}">
-            <span class="label">VPN-ядро</span>
-            <span class="value">${escapeHtml(formatPercent(health.processes.singboxCpu, 1))}</span>
-          </div>
-          <div class="engine-inline-chip ${healthChipClass("mem", health.memory.usedPercent)}" title="${escapeHtml(healthMetricTitle("mem", health))}">
-            <span class="label">Память</span>
-            <span class="value">${escapeHtml(formatPercent(health.memory.usedPercent, 1))}</span>
-          </div>
-        `
-        : `
-          <div class="engine-inline-chip chip-muted">
-            <span class="label">Система</span>
-            <span class="value">нет данных</span>
-          </div>
-        `;
 
   $("summaryGrid").innerHTML = `
     <section class="engine-row summary-row">
@@ -2951,29 +2892,6 @@ function renderSummary() {
       <div class="engine-row-actions summary-row-actions">
         <button type="button" class="info" data-router-action="dns-refresh"${dnsRefreshDisabled} title="Пересобрать live DNS-маршруты и перезапустить dns-proxy intercept">${dnsRefreshLabel}</button>
         <button type="button" class="warning" data-router-action="vpn-refresh"${vpnRefreshDisabled} title="Перезапустить только реально используемые движки и обновить VPN-слой без полной пересборки DNS">${vpnRefreshLabel}</button>
-      </div>
-    </section>
-    <section class="engine-row summary-row">
-      <div class="summary-row-main">
-        <div class="engine-row-title">Статус</div>
-        <div class="engine-row-bubbles summary-row-bubbles">
-          <div class="engine-inline-chip ${unhealthyRuntimeCount ? "chip-warn" : "chip-ok"}">
-            <span class="label">Proxy ok</span>
-            <span class="value">${healthyRuntimeCount}/${runtimeProxies.length || 0}</span>
-          </div>
-          <div class="engine-inline-chip ${unhealthyRuntimeCount ? "chip-bad" : "chip-muted"}">
-            <span class="label">Проблемных proxy</span>
-            <span class="value">${unhealthyRuntimeCount}</span>
-          </div>
-          ${systemHealthHtml}
-        </div>
-      </div>
-      <div class="engine-row-actions summary-row-actions">
-        <button type="button" class="refresh-button${
-          state.systemHealthLoading || state.routerRuntimeLoading ? " is-loading" : ""
-        }" data-router-action="status-refresh"${statusRefreshDisabled} aria-label="${escapeHtml(statusRefreshLabel)}" title="По запросу считать живой CPU / RAM / ProxyN runtime. На слабом роутере это лучше делать вручную, а не при каждом открытии страницы.">${
-          state.systemHealthLoading || state.routerRuntimeLoading ? "⏳" : "♻️"
-        }</button>
       </div>
     </section>
   `;
@@ -3395,6 +3313,7 @@ function renderClientPolicies() {
   const policyMap = getClientPolicyMap();
   const assignmentMap = getClientAssignmentMap();
   const proxyOptionMap = new Map();
+  const profileNameByProxyId = new Map();
 
   for (const item of normalizeRouterProxyList(state.routerProxies)) {
     if (!(item.enabled || item.configuredUp || item.upstreamPort)) {
@@ -3411,12 +3330,14 @@ function renderClientPolicies() {
     if (!proxyId || !(profile && profile.enabled) || !toNumber(profile && profile.localPort)) {
       continue;
     }
-    if (!proxyOptionMap.has(proxyId)) {
-      proxyOptionMap.set(proxyId, {
-        value: proxyId,
-        title: profile.name ? profile.name + " (" + proxyId + ")" : proxyId,
-      });
+    const profileName = String(profile.name || "").trim();
+    if (profileName) {
+      profileNameByProxyId.set(proxyId, profileName);
     }
+    proxyOptionMap.set(proxyId, {
+      value: proxyId,
+      title: profileName ? profileName + " (" + proxyId + ")" : proxyId,
+    });
   }
 
   const proxyOptions = Array.from(proxyOptionMap.values()).sort((left, right) =>
@@ -3454,8 +3375,11 @@ function renderClientPolicies() {
       let statusHtml = '<span class="status-pill status-neutral tiny-status">Обычный режим</span>';
       let note = "DNS-таблица продолжает управлять этим клиентом как обычно.";
       if (isManaged) {
+        const optionTitle = String((proxyOptionMap.get(currentProxyId) && proxyOptionMap.get(currentProxyId).title) || "");
+        const currentProxyName =
+          profileNameByProxyId.get(currentProxyId) || optionTitle.replace(/\s+\([^)]*\)$/, "") || currentProxyId;
         statusHtml = '<span class="status-pill status-direct-first tiny-status">Полный маршрут активен</span>';
-        note = policy.description || ("Весь трафик идёт через " + currentProxyId + ".");
+        note = "Весь трафик идёт через " + currentProxyName + ".";
       } else if (isForeign) {
         statusHtml = '<span class="status-pill status-warn tiny-status">Сторонняя policy</span>';
         note =
@@ -3508,7 +3432,17 @@ function applyClientPolicy(mac) {
 
   const proxyId = normalizeRouterProxyId(select.value);
   const proxyMeta = normalizeRouterProxyList(state.routerProxies).find((item) => item.proxyId === proxyId);
-  const proxyName = proxyMeta && proxyMeta.name ? proxyMeta.name : proxyId;
+  const profileMeta = getProfiles().find(
+    (profile) =>
+      profile &&
+      profile.enabled &&
+      toNumber(profile.localPort) &&
+      normalizeRouterProxyId(profile.routerProxyId) === proxyId
+  );
+  const proxyName =
+    (profileMeta && String(profileMeta.name || "").trim()) ||
+    (proxyMeta && String(proxyMeta.name || "").trim()) ||
+    proxyId;
   const payload = ["H", normalizedMac, proxyId, utf8ToBase64(proxyName || "")].join("|");
 
   state.clientPolicyBusyMac = normalizedMac;

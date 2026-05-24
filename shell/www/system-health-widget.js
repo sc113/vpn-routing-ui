@@ -18,15 +18,23 @@
     return toNumber(value).toFixed(typeof digits === "number" ? digits : 0) + "%";
   }
 
+  function clampPercent(value) {
+    return Math.max(0, Math.min(999, toNumber(value)));
+  }
+
   function normalize(payload) {
     const source = payload && typeof payload === "object" ? payload : {};
     const cpu = source.cpu && typeof source.cpu === "object" ? source.cpu : {};
     const load = source.load && typeof source.load === "object" ? source.load : {};
     const memory = source.memory && typeof source.memory === "object" ? source.memory : {};
     const processes = source.processes && typeof source.processes === "object" ? source.processes : {};
+    const cores = Math.max(1, toNumber(load.cores) || 1);
+    const loadOnePercent =
+      load.onePercent == null ? (toNumber(load.one) * 100) / cores : toNumber(load.onePercent);
     return {
-      cpuIdle: toNumber(cpu.idle),
+      cpuBusy: clampPercent(100 - toNumber(cpu.idle)),
       loadOne: toNumber(load.one),
+      loadOnePercent: clampPercent(loadOnePercent),
       memoryUsed: toNumber(memory.usedPercent),
       ndmCpu: toNumber(processes.ndmCpu),
       vpnCpu: toNumber(processes.singboxCpu) + toNumber(processes.xrayCpu),
@@ -77,8 +85,8 @@
 
     const health = state.health;
     body.innerHTML =
-      row("🧠", "CPU", formatPercent(health.cpuIdle), "Свободный CPU. Чем больше, тем лучше.") +
-      row("📈", "Load", health.loadOne.toFixed(2), "Load average за 1 минуту.") +
+      row("🧠", "CPU", formatPercent(health.cpuBusy), "Занятый CPU роутера. Чем меньше, тем спокойнее.") +
+      row("📈", "Load 1м", formatPercent(health.loadOnePercent, 1), "Load average за 1 минуту в процентах от числа CPU-ядер.") +
       row("💾", "RAM", formatPercent(health.memoryUsed, 1), "Занятая оперативная память.") +
       row("⚙️", "NDM", formatPercent(health.ndmCpu, 1), "CPU процесса ndm/KeeneticOS.") +
       row("🚇", "VPN", formatPercent(health.vpnCpu, 1), "Суммарный CPU xray и sing-box.") +
@@ -122,7 +130,19 @@
       <div class="system-health-widget-grid" data-health-body></div>
       <div class="system-health-widget-note" data-health-note></div>
     `;
-    document.body.appendChild(widget);
+    const hero = document.querySelector(".hero");
+    if (hero) {
+      const copy = document.createElement("div");
+      copy.className = "hero-copy";
+      while (hero.firstChild) {
+        copy.appendChild(hero.firstChild);
+      }
+      hero.classList.add("hero-with-health");
+      hero.appendChild(copy);
+      hero.appendChild(widget);
+    } else {
+      document.body.insertBefore(widget, document.body.firstChild);
+    }
     const state = { loading: false, error: "", health: null };
     widget.querySelector("[data-health-refresh]").addEventListener("click", () => load(widget, state));
     load(widget, state);
