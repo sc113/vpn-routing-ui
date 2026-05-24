@@ -1,0 +1,94 @@
+#!/bin/sh
+
+ENABLED=yes
+DESC="vpn-routing-ui engine guard"
+
+PATH=/opt/sbin:/opt/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PROFILE_FILE="/opt/etc/vpn-routing-ui/profiles.json"
+XRAY_INIT="/opt/etc/init.d/S24xray"
+
+has_enabled_engine() {
+  wanted="$1"
+  [ -f "$PROFILE_FILE" ] || return 1
+  awk -v wanted="$wanted" '
+    function count_char(text, ch, copy) {
+      copy = text
+      return gsub(ch, ch, copy)
+    }
+    /"profiles"[[:space:]]*:[[:space:]]*\[/ {
+      in_profiles = 1
+    }
+    in_profiles {
+      opens = count_char($0, "{")
+      closes = count_char($0, "}")
+
+      if (!in_object && depth == 0 && opens > 0) {
+        in_object = 1
+        enabled = 0
+        engine = ""
+      }
+
+      if (in_object) {
+        if ($0 ~ /"enabled"[[:space:]]*:[[:space:]]*true/) {
+          enabled = 1
+        }
+        if ($0 ~ /"engine"[[:space:]]*:[[:space:]]*"/) {
+          line = $0
+          sub(/^.*"engine"[[:space:]]*:[[:space:]]*"/, "", line)
+          sub(/".*$/, "", line)
+          engine = line
+        }
+      }
+
+      depth += opens - closes
+      if (in_object && depth == 0) {
+        if (enabled && engine == wanted) {
+          found = 1
+        }
+        in_object = 0
+      }
+    }
+    END {
+      exit(found ? 0 : 1)
+    }
+  ' "$PROFILE_FILE"
+}
+
+disable_xray_autostart() {
+  [ -f "$XRAY_INIT" ] || return 0
+  "$XRAY_INIT" stop >/dev/null 2>&1 || sh "$XRAY_INIT" stop >/dev/null 2>&1 || true
+  chmod 644 "$XRAY_INIT" >/dev/null 2>&1 || true
+}
+
+enable_xray_autostart() {
+  [ -f "$XRAY_INIT" ] || return 0
+  chmod 755 "$XRAY_INIT" >/dev/null 2>&1 || true
+}
+
+start() {
+  if has_enabled_engine "xray"; then
+    enable_xray_autostart
+  else
+    disable_xray_autostart
+  fi
+}
+
+stop() {
+  :
+}
+
+restart() {
+  start
+}
+
+case "$1" in
+  start|stop|restart)
+    "$1"
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart}"
+    exit 1
+    ;;
+esac

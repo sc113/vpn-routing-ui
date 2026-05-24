@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VPN Routing UI</title>
+  <link rel="stylesheet" href="/app.css?v=20260419-1655">
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <h1>VPN Routing UI</h1>
+      <p>
+        Главная страница для управления VPN-маршрутами, движками и восстановлением роутерного слоя. Профили подключений,
+        DNS-правила и состояние <span class="inline-code">ProxyN</span> собираются в одном интерфейсе.
+      </p>
+    </section>
+
+    <div id="banner" class="banner"></div>
+
+    <section class="panel">
+      <div class="toolbar">
+        <div>
+          <h2>Быстрый доступ</h2>
+          <p class="hint">
+            Ссылки на основные страницы менеджера, сводка по сервисам и безопасная проверка обновлений.
+          </p>
+        </div>
+        <div class="toolbar-right">
+          <button id="reloadBtn" class="secondary">Обновить состояние</button>
+          <button id="checkUpdatesBtn" class="secondary">Проверить обновления</button>
+        </div>
+      </div>
+      <div id="quickGrid" class="grid two quick-grid"></div>
+    </section>
+
+    <section class="panel">
+      <div class="toolbar">
+        <div>
+          <h2>Ядра и сервисы</h2>
+          <p class="hint">
+            У каждого движка свои кнопки управления сервисом и пакетом. Обновление через Entware идёт отдельно и только в безопасном режиме без prerelease.
+          </p>
+        </div>
+      </div>
+      <div id="statusRows" class="engine-rows"></div>
+    </section>
+  </main>
+
+  <script src="/root.js?v=20260419-1655"></script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+#!/bin/sh
+
+PATH=/opt/sbin:/opt/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+DESC="vpn-routing-ui network tuning"
+
+write_sysctl() {
+  path="$1"
+  value="$2"
+  [ -w "$path" ] || return 0
+  printf '%s\n' "$value" > "$path" 2>/dev/null || true
+}
+
+apply_tuning() {
+  # Keenetic ProxyN creates many short local TCP sessions to the local SOCKS
+  # listener. Keep stale conntrack tails short so bursts do not pin weak MIPS CPU.
+  write_sysctl /proc/sys/net/ipv4/tcp_tw_reuse 1
+  write_sysctl /proc/sys/net/ipv4/tcp_fin_timeout 15
+  write_sysctl /proc/sys/net/netfilter/nf_conntrack_tcp_timeout_time_wait 15
+  write_sysctl /proc/sys/net/netfilter/nf_conntrack_tcp_timeout_fin_wait 15
+  write_sysctl /proc/sys/net/netfilter/nf_conntrack_tcp_timeout_close_wait 20
+  write_sysctl /proc/sys/net/netfilter/nf_conntrack_tcp_timeout_last_ack 15
+}
+
+case "${1:-start}" in
+  start|restart|reload)
+    apply_tuning
+    ;;
+  stop)
+    ;;
+  *)
+    echo "Usage: $0 {start|restart|reload|stop}"
+    exit 1
+    ;;
+esac
+
+exit 0

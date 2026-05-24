@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VPN Routing UI</title>
+  <link rel="stylesheet" href="/app.css?v=20260502-1036">
+</head>
+<body>
+  <main class="page">
+    <a class="top-link" href="/">&larr; На главную</a>
+
+    <section class="hero">
+      <h1>VPN Routing UI</h1>
+      <p>
+        Здесь собраны профили подключений, DNS-маршруты, живое состояние ProxyN и режимы устройств. Экран помогает
+        не только редактировать маршруты, но и сразу увидеть, где именно сломался VPN-слой на роутере.
+      </p>
+    </section>
+
+    <div id="banner" class="banner"></div>
+    <div id="dirtyNotice" class="change-notice" hidden>
+      <div class="change-notice-copy">
+        <div class="change-notice-title">Есть локальные изменения</div>
+        <div id="dirtyNoticeText" class="change-notice-text">
+          Изменения пока сохранены только в интерфейсе и ещё не отправлены на роутер.
+        </div>
+      </div>
+      <div class="change-notice-actions">
+        <button id="dirtySaveBtn" type="button">Отправить на роутер</button>
+      </div>
+    </div>
+    <div id="startupLoading" class="startup-loading">
+      <div class="startup-loading-row">
+        <span class="status-pill status-pending">Загружаем данные с роутера...</span>
+      </div>
+      <div id="startupLoadingText" class="startup-loading-text">
+        Сначала появятся сервисы и профили, затем отдельно догрузятся DNS-маршруты.
+      </div>
+    </div>
+
+    <section class="panel">
+      <div class="toolbar">
+        <div>
+          <h2>Система</h2>
+          <p class="hint">
+            Здесь общие действия менеджера остаются наверху, а управление сервисами разведено по отдельным карточкам движков ниже.
+          </p>
+        </div>
+        <div class="toolbar-right">
+          <button id="reloadBtn" class="secondary">Перечитать</button>
+        </div>
+      </div>
+      <div id="summaryGrid" class="engine-rows"></div>
+    </section>
+
+    <section class="panel">
+      <div class="toolbar">
+        <div>
+          <h2>Список ключей</h2>
+          <p class="hint">
+            Один клик выбирает профиль и обновляет сводку ниже, двойной клик или кнопка с карандашом открывают редактирование,
+            кнопка Вкл/Выкл сразу применяет состояние на роутере, а новый ключ добавить через плюс.
+          </p>
+        </div>
+        <div class="toolbar-right">
+          <button id="pingAllBtn" class="ghost">Пинг всех</button>
+          <button id="openCreateBtn">+ Добавить ключ</button>
+        </div>
+      </div>
+
+      <div class="table-shell">
+        <table class="profiles-table">
+          <thead>
+            <tr>
+              <th class="col-num">#</th>
+              <th>Тип</th>
+              <th>Профиль</th>
+              <th>Адрес</th>
+              <th>Порт</th>
+              <th>Транспорт</th>
+              <th>Защита</th>
+              <th>Движок</th>
+              <th>Proxy</th>
+              <th>Socks</th>
+              <th>Задержка</th>
+              <th class="col-actions">Действия</th>
+            </tr>
+          </thead>
+          <tbody id="profilesTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="toolbar">
+        <div>
+          <h2>DNS-маршруты</h2>
+          <p class="hint">
+            Здесь видны все списки доменов из Keenetic и профиль, через который они сейчас должны идти. Назначение
+            меняется прямо в таблице через выпадающий список. Если выбрать
+            <span class="inline-code">Прямое подключение</span>, такой маршрут будет применён раньше остальных.
+          </p>
+        </div>
+        <div class="toolbar-right">
+          <div class="dns-bulk-controls">
+            <label class="dns-bulk-label" for="dnsBulkProfileSelect">Массово назначить все активные маршруты на</label>
+            <select id="dnsBulkProfileSelect" class="dns-bulk-select">
+              <option value="">Выбери профиль</option>
+            </select>
+            <button id="dnsBulkApplyBtn" class="secondary" type="button">Переопределить назначенные</button>
+          </div>
+          <a
+            class="button-like ghost"
+            href="http://192.168.1.1/staticRoutes/dns"
+            target="_blank"
+            rel="noreferrer noopener"
+          >Открыть в Keenetic</a>
+        </div>
+      </div>
+
+      <div class="table-shell">
+        <table class="profiles-table dns-routes-table">
+          <thead>
+            <tr>
+              <th class="col-num">#</th>
+              <th>Список</th>
+              <th>Описание</th>
+              <th>Профиль</th>
+              <th>Proxy</th>
+              <th>Статус</th>
+            </tr>
+          </thead>
+          <tbody id="dnsRoutesTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="proxyRuntimePanel" class="panel">
+      <div class="toolbar">
+        <div>
+          <h2>ProxyN и runtime</h2>
+          <p class="hint">
+            Здесь видно живое состояние интерфейсов <span class="inline-code">ProxyN</span>: привязку, control-plane,
+            наличие процесса и то, какие DNS-группы или устройства сейчас используют этот маршрут.
+          </p>
+        </div>
+        <div class="toolbar-right">
+          <button type="button" class="secondary" data-router-action="status-refresh">Считать статус</button>
+        </div>
+      </div>
+
+      <div id="proxyRuntimeNotice" class="runtime-health-note" hidden></div>
+
+      <div class="table-shell">
+        <table class="profiles-table proxy-runtime-table">
+          <thead>
+            <tr>
+              <th class="col-num">#</th>
+              <th>Proxy</th>
+              <th>Upstream</th>
+              <th>Loopback</th>
+              <th>Состояние</th>
+              <th>IP</th>
+              <th>Использование</th>
+              <th class="col-actions">Действие</th>
+            </tr>
+          </thead>
+          <tbody id="proxyRuntimeTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="clientPoliciesPanel" class="panel">
+      <div class="toolbar">
+        <div>
+          <h2>Полный маршрут устройств</h2>
+          <p class="hint">
+            Это отдельный режим поверх обычных DNS-правил. Для выбранного клиента весь трафик пойдёт через конкретный
+            <span class="inline-code">ProxyN</span>, пока ты сам не вернёшь ему обычный режим. Для такого клиента этот
+            режим имеет приоритет над DNS-списками и обычно стабильнее для длинных запросов вроде Codex/ChatGPT через
+            Cloudflare.
+          </p>
+        </div>
+        <div class="toolbar-right">
+          <button type="button" class="secondary" data-router-action="clients-refresh">Загрузить клиентов</button>
+        </div>
+      </div>
+
+      <div class="table-shell">
+        <table class="profiles-table client-policies-table">
+          <thead>
+            <tr>
+              <th>Устройство</th>
+              <th>IP</th>
+              <th>MAC</th>
+              <th>Состояние</th>
+              <th>Полный маршрут</th>
+              <th>Статус</th>
+            </tr>
+          </thead>
+          <tbody id="clientPoliciesTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="toolbar">
+        <div>
+          <h2>Выбранный профиль</h2>
+          <p class="hint">
+            Здесь остаётся только короткая сводка и JSON выбранной строки. Полное редактирование живёт в отдельном окне, чтобы экран списка не захламлялся.
+          </p>
+        </div>
+      </div>
+      <div id="selectedOverview" class="empty">
+        Пока нет выбранного профиля.
+      </div>
+    </section>
+
+    <section class="panel">
+      <details id="techPreviewDetails" class="tech-details">
+        <summary>Техническое превью</summary>
+        <div class="split tech-preview">
+          <div class="field-stack">
+            <label for="selectedProfileJsonPreview">JSON выбранного профиля</label>
+            <textarea id="selectedProfileJsonPreview" class="small-textarea" readonly></textarea>
+          </div>
+          <div class="field-stack">
+          <label for="generatedConfigPreview">Сгенерированные config движков</label>
+          <textarea id="generatedConfigPreview" readonly></textarea>
+          </div>
+        </div>
+        <p class="hint">
+          Превью ниже показывает то, что менеджер соберёт для <span class="inline-code">xray</span> и
+          <span class="inline-code">sing-box</span> из текущего списка профилей.
+        </p>
+      </details>
+    </section>
+  </main>
+
+    <div id="profileModal" class="modal-backdrop" hidden>
+    <div class="modal-window" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-head">
+        <div class="modal-head-main">
+          <h2 id="modalTitle">Профиль</h2>
+          <p id="modalSubtitle" class="hint"></p>
+        </div>
+        <div class="modal-head-actions">
+          <button id="modalSaveBtn" type="button">Сохранить изменения</button>
+          <button id="closeModalBtn" class="ghost modal-close" type="button">Закрыть</button>
+        </div>
+      </div>
+
+      <div class="modal-body">
+        <section class="subpanel modal-primary-panel">
+          <div class="modal-primary-grid">
+            <div class="modal-primary-main">
+              <label for="replaceLinkInput" class="modal-key-label">Основной ключ подключения</label>
+              <div class="modal-primary-row">
+                <input id="replaceLinkInput" class="modal-key-input" type="text" placeholder="ss:// / trojan:// / vless:// / vmess:// / socks://">
+                <button id="replaceLinkBtn" class="secondary" type="button">Разобрать ключ</button>
+              </div>
+            </div>
+            <div class="field-stack modal-engine-picker">
+              <label for="profileEngine">Движок</label>
+              <select id="profileEngine">
+                <option value="xray">xray</option>
+                <option value="sing-box">sing-box</option>
+              </select>
+            </div>
+          </div>
+          <div id="modalMetaChips" class="modal-meta-chips"></div>
+        </section>
+
+        <div class="modal-grid">
+          <div class="modal-column">
+            <section class="subpanel">
+              <h3>Основные поля</h3>
+              <p class="hint">
+                Здесь можно уточнить имя, привязку на роутере и базовые параметры подключения.
+              </p>
+
+              <div class="row">
+                <div class="field-stack">
+                  <label for="profileNameInput">Название профиля</label>
+                  <input id="profileNameInput" type="text" placeholder="Как профиль будет называться в интерфейсе и на роутере">
+                </div>
+                <div class="field-stack">
+                  <label for="profileRouterProxyId">Proxy на роутере</label>
+                  <input id="profileRouterProxyId" type="text" placeholder="Например: 2 или Proxy2">
+                </div>
+              </div>
+
+              <div class="modal-system-strip">
+                <div class="modal-mini-card">
+                  <div class="label">Привязка на роутере</div>
+                  <div id="profileRouterBadge" class="value mono">авто</div>
+                </div>
+                <div class="modal-mini-card">
+                  <div class="label">Роль</div>
+                  <div class="value value-help">Название профиля и состояние будут синхронизированы с интерфейсом Keenetic.</div>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="field-stack">
+                  <label for="profileEnabled">Состояние</label>
+                  <select id="profileEnabled">
+                    <option value="true">Включён</option>
+                    <option value="false">Выключен</option>
+                  </select>
+                </div>
+                <div class="field-stack">
+                  <label for="profileProtocol">Протокол</label>
+                  <select id="profileProtocol">
+                    <option value="shadowsocks">Shadowsocks</option>
+                    <option value="trojan">Trojan</option>
+                    <option value="socks">Socks</option>
+                    <option value="vless">VLESS</option>
+                    <option value="vmess">VMess</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="row">
+                <div class="field-stack">
+                  <label for="serverAddress">Адрес</label>
+                  <input id="serverAddress" type="text">
+                </div>
+                <div class="field-stack">
+                  <label for="serverPort">Порт</label>
+                  <input id="serverPort" type="number" min="0" max="65535">
+                </div>
+              </div>
+            </section>
+
+            <section class="subpanel">
+              <h3>Параметры протокола</h3>
+
+              <div id="groupShadowsocks" class="protocol-group">
+                <div class="row">
+                  <div class="field-stack">
+                    <label for="ssMethod">Метод Shadowsocks</label>
+                    <input id="ssMethod" type="text">
+                  </div>
+                  <div class="field-stack">
+                    <label for="ssPassword">Пароль Shadowsocks</label>
+                    <input id="ssPassword" type="text">
+                  </div>
+                </div>
+              </div>
+
+              <div id="groupTrojan" class="protocol-group">
+                <div class="row">
+                  <div class="field-stack">
+                    <label for="trojanPassword">Пароль Trojan</label>
+                    <input id="trojanPassword" type="text">
+                  </div>
+                  <div class="field-stack">
+                    <label for="streamNetwork">Транспорт</label>
+                    <select id="streamNetwork">
+                      <option value="tcp">tcp</option>
+                      <option value="ws">ws</option>
+                    </select>
+                  </div>
+                  <div class="field-stack">
+                    <label for="streamSecurity">Защита</label>
+                    <select id="streamSecurity">
+                      <option value="none">none</option>
+                      <option value="tls">tls</option>
+                    </select>
+                  </div>
+                  <div class="field-stack">
+                    <label for="tlsServerName">SNI / serverName</label>
+                    <input id="tlsServerName" type="text">
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="field-stack">
+                    <label for="tlsFingerprint">TLS fingerprint</label>
+                    <input id="tlsFingerprint" type="text" placeholder="chrome">
+                  </div>
+                  <div class="field-stack">
+                    <label for="tlsAlpn">ALPN</label>
+                    <input id="tlsAlpn" type="text" placeholder="http/1.1">
+                  </div>
+                  <div class="field-stack">
+                    <label for="wsHost">WS host</label>
+                    <input id="wsHost" type="text">
+                  </div>
+                  <div class="field-stack">
+                    <label for="wsPath">WS path</label>
+                    <input id="wsPath" type="text" placeholder="/">
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="field-stack">
+                    <label for="wsUserAgent">User-Agent</label>
+                    <input id="wsUserAgent" type="text">
+                  </div>
+                  <div class="field-stack">
+                    <label for="tlsAllowInsecure">allowInsecure</label>
+                    <select id="tlsAllowInsecure">
+                      <option value="false">false</option>
+                      <option value="true">true</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div id="groupSocks" class="protocol-group">
+                <div class="row">
+                  <div class="field-stack">
+                    <label for="socksUser">Логин Socks</label>
+                    <input id="socksUser" type="text">
+                  </div>
+                  <div class="field-stack">
+                    <label for="socksPass">Пароль Socks</label>
+                    <input id="socksPass" type="text">
+                  </div>
+                </div>
+              </div>
+
+              <div id="groupVx" class="protocol-group">
+                <div class="row">
+                  <div class="field-stack">
+                    <label for="vxId">UUID / ID</label>
+                    <input id="vxId" type="text">
+                  </div>
+                  <div class="field-stack">
+                    <label for="vxSecurity">Защита</label>
+                    <select id="vxSecurity">
+                      <option value="none">none</option>
+                      <option value="tls">tls</option>
+                      <option value="reality">reality</option>
+                    </select>
+                  </div>
+                  <div class="field-stack">
+                    <label for="vxNetwork">Транспорт</label>
+                    <select id="vxNetwork">
+                      <option value="tcp">tcp</option>
+                      <option value="ws">ws</option>
+                    </select>
+                  </div>
+                  <div class="field-stack">
+                    <label for="vxServerName">SNI / serverName</label>
+                    <input id="vxServerName" type="text">
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="field-stack">
+                    <label for="vxFlow">Flow</label>
+                    <input id="vxFlow" type="text">
+                  </div>
+                  <div class="field-stack">
+                    <label for="vxFingerprint">Fingerprint</label>
+                    <input id="vxFingerprint" type="text" placeholder="chrome">
+                  </div>
+                  <div class="field-stack">
+                    <label for="vxRealityPublicKey">REALITY publicKey</label>
+                    <input id="vxRealityPublicKey" type="text">
+                  </div>
+                  <div class="field-stack">
+                    <label for="vxRealityShortId">REALITY shortId</label>
+                    <input id="vxRealityShortId" type="text">
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="field-stack">
+                    <label for="vxWsHost">WS host</label>
+                    <input id="vxWsHost" type="text">
+                  </div>
+                  <div class="field-stack">
+                    <label for="vxWsPath">WS path</label>
+                    <input id="vxWsPath" type="text" placeholder="/">
+                  </div>
+                  <div class="field-stack">
+                    <label for="vxRealitySpiderX">REALITY spiderX</label>
+                    <input id="vxRealitySpiderX" type="text" placeholder="/">
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <div class="modal-column">
+            <section class="subpanel">
+              <div class="toolbar modal-subtoolbar">
+                <div>
+                  <h3>Локальный socks на роутере</h3>
+                  <p class="hint">
+                    Менеджер сам создаёт внутренний socks на роутере и привязывает его к выбранному профилю. Роутерные
+                    DNS-маршруты Keenetic используют этот локальный адрес как upstream.
+                  </p>
+                </div>
+                <label class="toggle-inline">
+                  <input id="unlockPortEdit" type="checkbox">
+                  <span>Разрешить ручной порт</span>
+                </label>
+              </div>
+              <div class="row">
+                <div class="field-stack">
+                  <label for="localPort">Локальный socks-порт</label>
+                  <input id="localPort" type="number" min="1" max="65535" placeholder="Авто" disabled>
+                </div>
+                <div class="field-stack">
+                  <label>&nbsp;</label>
+                  <button id="autoPortBtn" class="ghost" type="button">Подобрать свободный</button>
+                </div>
+              </div>
+              <div id="routerSocksStatic" class="static-box"></div>
+            </section>
+
+            <section class="subpanel">
+              <h3>DNS-маршруты профиля</h3>
+              <p class="hint">
+                Эта часть теперь управляется в общей таблице DNS-маршрутов на странице. Здесь остаётся только краткая
+                сводка по уже назначенным спискам. <a href="http://192.168.1.1/staticRoutes/dns" target="_blank" rel="noreferrer noopener">Открыть раздел Keenetic</a>.
+              </p>
+              <div id="profileDnsRules" class="static-box"></div>
+            </section>
+
+            <section class="subpanel">
+              <div class="toolbar modal-subtoolbar modal-status-toolbar">
+                <div>
+                  <h3>Проверка сервера</h3>
+                  <p class="hint">Проверка идёт прямо с роутера по адресу и порту из текущих полей.</p>
+                </div>
+                <button id="pingSelectedBtn" class="secondary" type="button">Пинг сервера</button>
+              </div>
+              <div id="selectedPingStatus" class="value">
+                <span class="status-pill status-neutral">Не проверялся</span>
+              </div>
+              <div id="selectedPingDetails" class="field-note">Пинг идёт прямо с роутера.</div>
+            </section>
+
+            <section class="subpanel">
+              <details class="tech-details modal-json-details">
+                <summary>Расширенный JSON профиля</summary>
+                <p class="hint">Если надо, можно править один профиль целиком, а не по полям.</p>
+                <div class="toolbar modal-subtoolbar">
+                  <div></div>
+                  <button id="applyProfileJsonBtn" class="ghost" type="button">Применить JSON профиля</button>
+                </div>
+                <textarea id="profileJson" class="small-textarea"></textarea>
+              </details>
+            </section>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <div class="toolbar-right modal-footer-actions">
+          <button id="duplicateBtn" class="secondary" type="button">Дублировать</button>
+          <button id="deleteBtn" class="danger" type="button">Удалить</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/profiles.js?v=20260518-1857"></script>
+</body>
+</html>
+

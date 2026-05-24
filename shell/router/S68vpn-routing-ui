@@ -1,0 +1,19 @@
+#!/bin/sh
+
+ENABLED=yes
+PROCS=uhttpd
+APP_DIR="/opt/share/vpn-routing-ui"
+if [ ! -d "$APP_DIR" ]; then
+  for candidate in /opt/share/*; do
+    if [ -f "$candidate/bin/ui-paths.sh" ] && [ -d "$candidate/cgi-bin" ] && [ -f "$candidate/index.html" ]; then
+      APP_DIR="$candidate"
+      break
+    fi
+  done
+fi
+ARGS="-p 0.0.0.0:92 -h $APP_DIR -I index.html -x /cgi-bin -t 90 -T 30 -D"
+PREARGS=""
+DESC="vpn-routing-ui"
+PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+. /opt/etc/init.d/rc.func

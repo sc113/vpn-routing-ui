@@ -1,0 +1,5 @@
+* text=auto
+*.cgi text eol=lf
+*.sh text eol=lf
+shell/router/* text eol=lf
+
