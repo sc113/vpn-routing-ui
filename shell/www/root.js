@@ -4,7 +4,7 @@
   const statusRows = document.getElementById("statusRows");
   const reloadBtn = document.getElementById("reloadBtn");
   const checkUpdatesBtn = document.getElementById("checkUpdatesBtn");
-  const UI_VERSION = "20260512-0108";
+  const UI_VERSION = "20260524-1925";
   const state = {
     status: null,
     profiles: [],
@@ -723,6 +723,23 @@
         `,
         `
           <a class="button-like secondary" href="/profiles.html?v=${UI_VERSION}#clientPoliciesPanel">Открыть клиентов</a>
+        `
+      ),
+      quickCard(
+        "DNS GitHub Sync",
+        "Экспорт текущих domain-list групп в файл и синхронизация роутера с raw-ссылкой GitHub.",
+        `
+          <div class="engine-inline-chip chip-muted">
+            <span class="label">Формат</span>
+            <span class="value">dns-groups v1</span>
+          </div>
+          <div class="engine-inline-chip chip-muted">
+            <span class="label">Источник</span>
+            <span class="value">GitHub raw</span>
+          </div>
+        `,
+        `
+          <a class="button-like secondary" href="/dns-sync.html?v=${UI_VERSION}">Открыть синхронизацию</a>
         `
       ),
       quickCard(

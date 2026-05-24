@@ -8,13 +8,11 @@
 - `shell/www/` - HTML/CSS/JS веб-интерфейса.
 - `shell/cgi/` - CGI-скрипты API для роутера.
 - `shell/router/` - init.d/helper-скрипты для роутера.
-- `workspace-artifacts/` - вспомогательные и диагностические файлы, не являющиеся рабочей оболочкой.
-- `workspace-artifacts/tmp/` - временные снимки, логи, raw/json/txt, сделанные во время диагностики.
-- `workspace-artifacts/tmp-root/` - старые временные файлы, которые лежали в корне проекта.
-- `workspace-artifacts/diagnostics/` - сохраненные страницы/ресурсы диагностики Keenetic.
-- `workspace-artifacts/screenshots/` - скриншоты проверок интерфейса.
-- `workspace-artifacts/history/` - большие history/json архивы.
 
 ## Примечание
 
-Файлы не удалялись, только переименовывались и переносились. Сборочные/релизные архивы пока оставлены в соседней папке `../release`.
+Рабочая оболочка держится отдельно от временных диагностических файлов. Сборочные/релизные архивы лежат в соседней папке `../release`.
+
+## DNS GitHub Sync
+
+Страница `shell/www/dns-sync.html` экспортирует текущие Keenetic `domain-list` группы в текстовый формат `vpn-routing-ui dns-groups v1` и применяет такой же raw-файл обратно через `shell/cgi/router-dns-github-sync.cgi`.
