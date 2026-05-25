@@ -1026,6 +1026,70 @@ textarea {
   resize: vertical;
 }
 
+.dns-group-editor-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.dns-transfer-row {
+  cursor: pointer;
+}
+
+.dns-transfer-row.is-selected {
+  background: rgba(58, 132, 204, 0.22);
+  box-shadow: inset 3px 0 0 rgba(96, 165, 250, 0.9);
+}
+
+.dns-group-editor {
+  display: grid;
+  gap: 14px;
+  min-height: 260px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(14, 20, 30, 0.58);
+}
+
+.dns-group-editor-empty {
+  align-self: center;
+  color: var(--muted);
+}
+
+.dns-group-editor-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.dns-group-editor-head h3 {
+  margin: 0 0 4px;
+  font-size: 20px;
+}
+
+.dns-hosts-text {
+  min-height: 360px;
+  font-size: 13px;
+}
+
+.dns-group-editor-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.dns-group-editor-actions button {
+  flex: 1 1 150px;
+}
+
+@media (max-width: 1180px) {
+  .dns-group-editor-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
 .dns-bulk-controls {
   display: flex;
   align-items: center;
@@ -2055,6 +2119,10 @@ textarea {
 
   .dns-transfer-actions button {
     width: 100%;
+  }
+
+  .dns-group-editor-layout {
+    grid-template-columns: 1fr;
   }
 
   .system-health-widget-grid {

@@ -3,6 +3,7 @@
   const state = {
     loading: false,
     text: "",
+    selectedGroupId: "",
   };
 
   function $(id) {
@@ -59,9 +60,26 @@
     }
   }
 
+  function encodeBase64(value) {
+    return btoa(unescape(encodeURIComponent(String(value || ""))));
+  }
+
   function dnsRuleOrder(groupId) {
     const match = String(groupId || "").match(/^domain-list(\d+)$/);
     return match ? Number(match[1]) : 999999;
+  }
+
+  function ensureParsedGroup(groups, groupId) {
+    const key = String(groupId || "");
+    if (!groups.has(key)) {
+      groups.set(key, {
+        groupId: key,
+        description: "",
+        route: "",
+        includes: [],
+      });
+    }
+    return groups.get(key);
   }
 
   function parseTransferText(text) {
@@ -73,36 +91,70 @@
       .forEach((line) => {
         const parts = line.split("|");
         if (parts[0] === "G" && /^domain-list\d+$/.test(parts[1] || "")) {
-          groups.set(parts[1], {
-            groupId: parts[1],
-            description: decodeBase64(parts[2] || ""),
-            route: parts[3] || "",
-            includeCount: 0,
-          });
+          const group = ensureParsedGroup(groups, parts[1]);
+          group.description = decodeBase64(parts[2] || "");
+          group.route = parts[3] || "";
           return;
         }
         if (parts[0] === "I" && /^domain-list\d+$/.test(parts[1] || "")) {
-          const group =
-            groups.get(parts[1]) ||
-            {
-              groupId: parts[1],
-              description: "",
-              route: "",
-              includeCount: 0,
-            };
-          group.includeCount += 1;
-          groups.set(parts[1], group);
+          const group = ensureParsedGroup(groups, parts[1]);
+          const includeValue = parts.slice(2).join("|").trim();
+          if (includeValue) {
+            group.includes.push(includeValue);
+          }
         }
       });
 
     return Array.from(groups.values()).sort((left, right) => dnsRuleOrder(left.groupId) - dnsRuleOrder(right.groupId));
   }
 
+  function serializeTransferText(groups) {
+    const lines = [
+      "# vpn-routing-ui dns-groups v1",
+      "# G|domain-listN|base64(name/description)|route-target",
+      "# I|domain-listN|include-value",
+      "# generated " + new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+    ];
+
+    groups
+      .slice()
+      .sort((left, right) => dnsRuleOrder(left.groupId) - dnsRuleOrder(right.groupId))
+      .forEach((group) => {
+        const groupId = String(group.groupId || "").trim();
+        if (!/^domain-list\d+$/.test(groupId)) {
+          return;
+        }
+        lines.push(["G", groupId, encodeBase64(group.description || ""), group.route || ""].join("|"));
+        (Array.isArray(group.includes) ? group.includes : []).forEach((includeValue) => {
+          lines.push(["I", groupId, includeValue].join("|"));
+        });
+      });
+
+    return lines.join("\n") + "\n";
+  }
+
+  function ensureSelectedGroup(groups) {
+    if (!groups.length) {
+      state.selectedGroupId = "";
+      return null;
+    }
+    const current = groups.find((group) => group.groupId === state.selectedGroupId);
+    if (current) {
+      return current;
+    }
+    state.selectedGroupId = groups[0].groupId;
+    return groups[0];
+  }
+
+  function selectedGroup(groups) {
+    return groups.find((group) => group.groupId === state.selectedGroupId) || null;
+  }
+
   function currentMetrics() {
     const groups = parseTransferText(state.text);
     return {
       groupCount: groups.length,
-      includeCount: groups.reduce((sum, group) => sum + group.includeCount, 0),
+      includeCount: groups.reduce((sum, group) => sum + group.includes.length, 0),
       routeCount: groups.filter((group) => group.route).length,
     };
   }
@@ -116,6 +168,12 @@
       "openFileBtn",
       "validateTextBtn",
       "applyTextBtn",
+      "addGroupBtn",
+      "groupNameInput",
+      "groupHostsText",
+      "saveGroupTextBtn",
+      "saveGroupApplyBtn",
+      "discardGroupBtn",
     ].forEach((id) => {
       const element = $(id);
       if (element) element.disabled = busy;
@@ -154,24 +212,70 @@
     const body = $("groupsTableBody");
     if (!body) return;
     const groups = parseTransferText(state.text);
+    ensureSelectedGroup(groups);
     if (!groups.length) {
       body.innerHTML = '<tr><td colspan="5" class="table-empty">Вставь DNS-файл или получи снимок с роутера.</td></tr>';
+      renderGroupEditor(groups);
       return;
     }
     body.innerHTML = groups
       .map((group, index) => {
         const routeClass = group.route ? "status-pill status-ok tiny-status" : "status-pill status-neutral tiny-status";
+        const selectedClass = group.groupId === state.selectedGroupId ? " is-selected" : "";
+        const includePreview = group.includes.slice(0, 3).join(", ");
+        const includeExtra = group.includes.length > 3 ? " +" + (group.includes.length - 3) : "";
         return `
-          <tr>
+          <tr class="dns-transfer-row${selectedClass}" data-group-id="${escapeHtml(group.groupId)}">
             <td class="mono">${index + 1}</td>
             <td class="mono">${escapeHtml(group.groupId)}</td>
             <td>${escapeHtml(group.description || group.groupId)}</td>
-            <td>${escapeHtml(group.includeCount)}</td>
+            <td>
+              <div class="client-device-name">${escapeHtml(group.includes.length)} include</div>
+              <div class="client-device-meta">${escapeHtml(includePreview || "пусто")}${escapeHtml(includeExtra)}</div>
+            </td>
             <td><span class="${routeClass}">${escapeHtml(group.route || "не назначен")}</span></td>
           </tr>
         `;
       })
       .join("");
+    renderGroupEditor(groups);
+  }
+
+  function renderGroupEditor(groups) {
+    const container = $("groupEditor");
+    if (!container) return;
+    const group = selectedGroup(groups);
+    if (!group) {
+      container.innerHTML = '<div class="dns-group-editor-empty">Выбери DNS-группу слева, чтобы править её хосты.</div>';
+      return;
+    }
+
+    const disabled = state.loading ? " disabled" : "";
+    const routeClass = group.route ? "status-pill status-ok tiny-status" : "status-pill status-neutral tiny-status";
+    container.innerHTML = `
+      <div class="dns-group-editor-head">
+        <div>
+          <h3>${escapeHtml(group.description || group.groupId)}</h3>
+          <div class="client-device-meta mono">${escapeHtml(group.groupId)}</div>
+        </div>
+        <span class="${routeClass}">${escapeHtml(group.route || "маршрут не назначен")}</span>
+      </div>
+      <div class="field-stack">
+        <label for="groupNameInput">Название списка</label>
+        <input id="groupNameInput" type="text" value="${escapeHtml(group.description || "")}"${disabled}>
+      </div>
+      <div class="field-stack">
+        <label for="groupHostsText">Хосты, домены или IP, по одному в строке</label>
+        <textarea id="groupHostsText" class="dns-hosts-text" spellcheck="false"${disabled}>${escapeHtml(
+          group.includes.join("\n")
+        )}</textarea>
+      </div>
+      <div class="dns-group-editor-actions">
+        <button id="saveGroupTextBtn" class="secondary" type="button"${disabled}>Сохранить в текст</button>
+        <button id="saveGroupApplyBtn" class="warning" type="button"${disabled}>Сохранить на роутер</button>
+        <button id="discardGroupBtn" class="ghost" type="button"${disabled}>Отменить</button>
+      </div>
+    `;
   }
 
   function renderText(text, payload) {
@@ -179,14 +283,101 @@
     if ($("dnsText")) {
       $("dnsText").value = state.text;
     }
+    ensureSelectedGroup(parseTransferText(state.text));
     renderStats(payload);
     renderGroupsTable();
   }
 
   function readTextArea() {
     state.text = $("dnsText") ? $("dnsText").value : "";
+    ensureSelectedGroup(parseTransferText(state.text));
     renderStats();
     renderGroupsTable();
+  }
+
+  function normalizeHostsInput(value) {
+    const seen = new Set();
+    const hosts = [];
+    const invalid = [];
+
+    String(value || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#"))
+      .forEach((line) => {
+        if (!/^[A-Za-z0-9._:/*-]+$/.test(line)) {
+          invalid.push(line);
+          return;
+        }
+        const key = line.toLowerCase();
+        if (!seen.has(key)) {
+          seen.add(key);
+          hosts.push(line);
+        }
+      });
+
+    if (invalid.length) {
+      return {
+        ok: false,
+        error:
+          "Keenetic не примет эти строки: " +
+          invalid.slice(0, 4).join(", ") +
+          (invalid.length > 4 ? "..." : ""),
+      };
+    }
+
+    return { ok: true, hosts };
+  }
+
+  function nextGroupId(groups) {
+    const used = new Set(groups.map((group) => group.groupId));
+    let index = 0;
+    while (used.has("domain-list" + index)) {
+      index += 1;
+    }
+    return "domain-list" + index;
+  }
+
+  function saveSelectedGroup(applyRouter) {
+    const groups = parseTransferText(state.text);
+    const group = selectedGroup(groups);
+    if (!group) {
+      showBanner("error", "Сначала выбери DNS-группу.");
+      return Promise.resolve();
+    }
+
+    const hostResult = normalizeHostsInput($("groupHostsText") ? $("groupHostsText").value : "");
+    if (!hostResult.ok) {
+      showBanner("error", hostResult.error);
+      return Promise.resolve();
+    }
+
+    group.description = ($("groupNameInput") ? $("groupNameInput").value : "").trim() || group.groupId;
+    group.includes = hostResult.hosts;
+    state.selectedGroupId = group.groupId;
+    renderText(serializeTransferText(groups));
+
+    if (!applyRouter) {
+      showBanner("ok", `Группа ${group.description || group.groupId} обновлена в тексте.`);
+      return Promise.resolve();
+    }
+
+    return applyText();
+  }
+
+  function addGroup() {
+    readTextArea();
+    const groups = parseTransferText(state.text);
+    const groupId = nextGroupId(groups);
+    groups.push({
+      groupId,
+      description: "new-group",
+      route: "",
+      includes: [],
+    });
+    state.selectedGroupId = groupId;
+    renderText(serializeTransferText(groups));
+    showBanner("ok", "Добавлена новая DNS-группа. Заполни название и хосты.");
   }
 
   async function loadFromRouter(message) {
@@ -327,6 +518,34 @@
     if ($("importFileInput")) $("importFileInput").addEventListener("change", importFile);
     if ($("validateTextBtn")) $("validateTextBtn").addEventListener("click", validateText);
     if ($("applyTextBtn")) $("applyTextBtn").addEventListener("click", applyText);
+    if ($("addGroupBtn")) $("addGroupBtn").addEventListener("click", addGroup);
+    if ($("groupsTableBody")) {
+      $("groupsTableBody").addEventListener("click", (event) => {
+        const row = event.target.closest("[data-group-id]");
+        if (!row) return;
+        state.selectedGroupId = row.getAttribute("data-group-id") || "";
+        renderGroupsTable();
+        const editor = $("groupEditor");
+        if (editor && editor.getBoundingClientRect().top > window.innerHeight * 0.72) {
+          editor.scrollIntoView({ block: "start", behavior: "smooth" });
+        }
+      });
+    }
+    if ($("groupEditor")) {
+      $("groupEditor").addEventListener("click", (event) => {
+        if (event.target.closest("#saveGroupTextBtn")) {
+          saveSelectedGroup(false);
+          return;
+        }
+        if (event.target.closest("#saveGroupApplyBtn")) {
+          saveSelectedGroup(true).catch((error) => showBanner("error", error.message));
+          return;
+        }
+        if (event.target.closest("#discardGroupBtn")) {
+          renderGroupsTable();
+        }
+      });
+    }
     loadFromRouter();
   });
 })();

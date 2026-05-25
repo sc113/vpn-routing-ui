@@ -7,7 +7,7 @@
   <meta http-equiv="Expires" content="0">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DNS Transfer</title>
-  <link rel="stylesheet" href="/app.css?v=20260526-0135">
+  <link rel="stylesheet" href="/app.css?v=20260526-0205">
 </head>
 <body>
   <main class="page">
@@ -26,13 +26,19 @@
     <section class="panel">
       <div class="toolbar">
         <div>
-          <h2>DNS-файл</h2>
+          <h2>Текстовый код DNS</h2>
           <p class="hint">
             В тексте сохраняются названия групп, все <span class="inline-code">include</span> и назначенные DNS-маршруты.
             Применение полностью заменяет DNS-группы роутера содержимым поля.
           </p>
         </div>
         <div class="toolbar-right">
+          <a
+            class="button-like ghost"
+            href="http://192.168.1.1/staticRoutes/dns"
+            target="_blank"
+            rel="noreferrer noopener"
+          >Открыть в Keenetic</a>
           <button id="reloadBtn" class="refresh-button" type="button" aria-label="Получить DNS-файл с роутера" title="Получить DNS-файл с роутера">♻️</button>
         </div>
       </div>
@@ -53,31 +59,42 @@
     <section class="panel">
       <div class="toolbar">
         <div>
-          <h2>Содержимое текста</h2>
+          <h2>Редактор DNS-групп</h2>
           <p class="hint">
-            Быстрая проверка файла перед применением: списки, названия, количество include и маршруты.
+            Клик по группе открывает её хосты. Хосты редактируются по одному в строке и сохраняются в тот же переносимый текст.
           </p>
+        </div>
+        <div class="toolbar-right">
+          <button id="addGroupBtn" class="secondary" type="button">+ Группа</button>
         </div>
       </div>
 
-      <div class="table-shell">
-        <table class="profiles-table dns-transfer-table">
-          <thead>
-            <tr>
-              <th class="col-num">#</th>
-              <th>Список</th>
-              <th>Название</th>
-              <th>Include</th>
-              <th>Маршрут</th>
-            </tr>
-          </thead>
-          <tbody id="groupsTableBody"></tbody>
-        </table>
+      <div class="dns-group-editor-layout">
+        <div class="table-shell">
+          <table class="profiles-table dns-transfer-table">
+            <thead>
+              <tr>
+                <th class="col-num">#</th>
+                <th>Список</th>
+                <th>Название</th>
+                <th>Хосты</th>
+                <th>Маршрут</th>
+              </tr>
+            </thead>
+            <tbody id="groupsTableBody"></tbody>
+          </table>
+        </div>
+
+        <aside id="groupEditor" class="dns-group-editor" aria-live="polite">
+          <div class="dns-group-editor-empty">
+            Выбери DNS-группу слева, чтобы править её хосты.
+          </div>
+        </aside>
       </div>
     </section>
   </main>
 
-  <script src="/system-health-widget.js?v=20260526-0135"></script>
-  <script src="/dns-sync.js?v=20260526-0135"></script>
+  <script src="/system-health-widget.js?v=20260526-0205"></script>
+  <script src="/dns-sync.js?v=20260526-0205"></script>
 </body>
 </html>
