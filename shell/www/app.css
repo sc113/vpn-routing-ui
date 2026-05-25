@@ -997,6 +997,27 @@ textarea {
 
 .dns-transfer-table {
   min-width: 780px;
+  table-layout: fixed;
+}
+
+.dns-transfer-table th:nth-child(1),
+.dns-transfer-table td:nth-child(1) {
+  width: 44px;
+}
+
+.dns-transfer-table th:nth-child(2),
+.dns-transfer-table td:nth-child(2) {
+  width: 130px;
+}
+
+.dns-transfer-table th:nth-child(3),
+.dns-transfer-table td:nth-child(3) {
+  width: 170px;
+}
+
+.dns-transfer-table th:nth-child(5),
+.dns-transfer-table td:nth-child(5) {
+  width: 130px;
 }
 
 .dns-transfer-actions,
@@ -1067,6 +1088,10 @@ textarea {
 .dns-group-editor-head h3 {
   margin: 0 0 4px;
   font-size: 20px;
+}
+
+.dns-group-name-field {
+  max-width: 360px;
 }
 
 .dns-hosts-text {
@@ -1973,6 +1998,42 @@ textarea {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
   background: rgba(16, 21, 29, 0.6);
+}
+
+.system-health-widget-row.is-watch {
+  border-color: rgba(250, 204, 21, 0.28);
+  background: rgba(113, 88, 7, 0.18);
+}
+
+.system-health-widget-row.is-warm {
+  border-color: rgba(251, 191, 36, 0.36);
+  background: rgba(146, 92, 10, 0.22);
+}
+
+.system-health-widget-row.is-hot {
+  border-color: rgba(251, 146, 60, 0.46);
+  background: rgba(154, 72, 15, 0.28);
+}
+
+.system-health-widget-row.is-critical {
+  border-color: rgba(248, 113, 113, 0.52);
+  background: rgba(127, 29, 29, 0.34);
+}
+
+.system-health-widget-row.is-watch .system-health-widget-value {
+  color: #fde68a;
+}
+
+.system-health-widget-row.is-warm .system-health-widget-value {
+  color: #fbbf24;
+}
+
+.system-health-widget-row.is-hot .system-health-widget-value {
+  color: #fb923c;
+}
+
+.system-health-widget-row.is-critical .system-health-widget-value {
+  color: #fca5a5;
 }
 
 .system-health-widget-label {

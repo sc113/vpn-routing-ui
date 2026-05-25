@@ -1,6 +1,6 @@
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
-const UI_VERSION = "20260526-0205";
+const UI_VERSION = "20260526-0235";
 const LOCAL_SOCKS_PUBLIC_BIND = "192.168.1.1";
 const LOCAL_SOCKS_INTERNAL_BIND = "127.0.0.1";
 const DIRECT_DNS_ROUTE_TARGET = "ISP";
@@ -5243,6 +5243,23 @@ function wireEvents() {
   });
 }
 
+function scrollHashTargetIntoView() {
+  const hash = String(window.location.hash || "").slice(1);
+  if (!hash || !/^[A-Za-z0-9_-]+$/.test(hash)) {
+    return;
+  }
+  const target = document.getElementById(hash);
+  if (target) {
+    target.scrollIntoView({ block: "start" });
+  }
+}
+
+function scheduleHashScroll() {
+  scrollHashTargetIntoView();
+  window.setTimeout(scrollHashTargetIntoView, 250);
+  window.setTimeout(scrollHashTargetIntoView, 1000);
+}
+
 function loadSupplementalRouterState(options) {
   const opts = options || {};
   return loadDnsRoutes()
@@ -5261,6 +5278,7 @@ function loadSupplementalRouterState(options) {
       markProfilesApplied(state.profilesDoc);
       markDnsRoutesApplied(state.dnsRoutes, state.profilesDoc.profiles);
       renderAll();
+      scheduleHashScroll();
     })
     .catch((error) => {
       state.dnsRoutesLoading = false;
@@ -5268,6 +5286,7 @@ function loadSupplementalRouterState(options) {
       markProfilesApplied(state.profilesDoc);
       state.appliedDnsRoutesSignature = "";
       renderAll();
+      scheduleHashScroll();
       showBanner("warn", "Основной интерфейс загружен, но DNS-маршруты пока не прочитались: " + error.message);
     });
 }
@@ -5313,6 +5332,7 @@ function init(message) {
       ensureSelection();
       closeProfileModal();
       renderAll();
+      scheduleHashScroll();
       setStartupLoading(false);
 
       if (message) {
@@ -5328,6 +5348,7 @@ function init(message) {
       ensureSelection();
       closeProfileModal();
       renderAll();
+      scheduleHashScroll();
       setStartupLoading(false);
 
       if (message) {

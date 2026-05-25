@@ -260,7 +260,7 @@
         </div>
         <span class="${routeClass}">${escapeHtml(group.route || "маршрут не назначен")}</span>
       </div>
-      <div class="field-stack">
+      <div class="field-stack dns-group-name-field">
         <label for="groupNameInput">Название списка</label>
         <input id="groupNameInput" type="text" value="${escapeHtml(group.description || "")}"${disabled}>
       </div>
@@ -380,12 +380,30 @@
     showBanner("ok", "Добавлена новая DNS-группа. Заполни название и хосты.");
   }
 
+  function scrollHashTargetIntoView() {
+    const hash = String(window.location.hash || "").slice(1);
+    if (!hash || !/^[A-Za-z0-9_-]+$/.test(hash)) {
+      return;
+    }
+    const target = document.getElementById(hash);
+    if (target) {
+      target.scrollIntoView({ block: "start" });
+    }
+  }
+
+  function scheduleHashScroll() {
+    scrollHashTargetIntoView();
+    window.setTimeout(scrollHashTargetIntoView, 250);
+    window.setTimeout(scrollHashTargetIntoView, 1000);
+  }
+
   async function loadFromRouter(message) {
     setBusy(true);
     showBanner("warn", "Читаем DNS-файл с роутера...");
     try {
       const data = await fetchJson(API_URL, { cache: "no-store" });
       renderText(data.exportText || "", data);
+      scheduleHashScroll();
       if (message) {
         showBanner("ok", message);
       } else {
