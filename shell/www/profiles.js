@@ -1,6 +1,6 @@
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
-const UI_VERSION = "20260525-0610";
+const UI_VERSION = "20260526-0115";
 const LOCAL_SOCKS_PUBLIC_BIND = "192.168.1.1";
 const LOCAL_SOCKS_INTERNAL_BIND = "127.0.0.1";
 const DIRECT_DNS_ROUTE_TARGET = "ISP";
@@ -956,6 +956,17 @@ function getRouterProxyRuntimeMap() {
 function getRouterProxyRuntime(proxyId) {
   const normalized = normalizeRouterProxyId(proxyId);
   return normalized ? getRouterProxyRuntimeMap().get(normalized) || null : null;
+}
+
+function routerProxyNameMeta(profile) {
+  const proxyId = getEffectiveRouterProxyId(profile, profile && profile.id);
+  const proxy = getRouterProxyRuntime(proxyId);
+  const routerName = String((proxy && proxy.name) || "").trim();
+  const profileName = String((profile && profile.name) || "").trim();
+  if (!routerName || routerName === profileName) {
+    return "";
+  }
+  return `<div class="profile-cell-router-name">на роутере: ${escapeHtml(routerName)}</div>`;
 }
 
 function getProxyUsageSummary(proxyId) {
@@ -2919,7 +2930,7 @@ function renderProfilesTable() {
           <td>${escapeHtml(protocolLabel(profile.protocol))}</td>
           <td class="profile-cell">
             <div class="profile-cell-name">${escapeHtml(profile.name)}</div>
-            <div class="profile-cell-meta">${enabledPill(profile)}</div>
+            <div class="profile-cell-meta">${enabledPill(profile)}${routerProxyNameMeta(profile)}</div>
           </td>
           <td class="mono">${escapeHtml(profile.server.address || "-")}</td>
           <td class="mono">${profile.server.port ? escapeHtml(profile.server.port) : "-"}</td>
@@ -3148,7 +3159,7 @@ function renderProxyRuntimeTable() {
   if (!state.statusSnapshotLoaded && !state.routerRuntimeLoading) {
     body.innerHTML = `
       <tr>
-        <td colspan="8" class="table-empty">Живой runtime пока не считан. Нажми ♻️, когда нужен снимок ProxyN.</td>
+        <td colspan="8" class="table-empty">Снимок runtime ещё не загружен.</td>
       </tr>
     `;
     return;
@@ -3233,7 +3244,7 @@ function renderProxyRuntimeTable() {
             <td class="mono col-num">${index + 1}</td>
             <td>
               <div class="client-device-name">${escapeHtml(proxy.proxyId)}</div>
-              <div class="client-device-meta">${escapeHtml(proxy.name || "Без описания")}</div>
+              <div class="client-device-meta">на роутере: ${escapeHtml(proxy.name || "без описания")}</div>
             </td>
             <td class="mono">${escapeHtml(proxy.upstreamHost || "-")}:${proxy.upstreamPort || "-"}</td>
             <td>
