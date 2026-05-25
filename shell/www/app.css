@@ -946,14 +946,6 @@ textarea {
   margin-top: 6px;
 }
 
-.profile-cell-router-name {
-  margin-top: 5px;
-  color: rgba(255, 215, 159, 0.9);
-  font-size: 12px;
-  line-height: 1.35;
-  white-space: normal;
-}
-
 .dns-routes-table {
   min-width: 920px;
   table-layout: fixed;

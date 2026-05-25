@@ -12,6 +12,11 @@ bool_json() {
   fi
 }
 
+query_value() {
+  key="$1"
+  printf '%s' "${QUERY_STRING:-}" | tr '&' '\n' | awk -F= -v key="$key" '$1 == key { print $2; exit }'
+}
+
 normalize_proxy_id() {
   case "$1" in
     Proxy[0-9]*) printf '%s' "$1" ;;
@@ -29,6 +34,10 @@ decode_name() {
 
 sanitize_name() {
   printf '%s' "$1" | tr '\r\n' '  ' | sed 's/"/ /g'
+}
+
+quote_ndmc_string() {
+  printf '%s' "$1" | sed 's/\\/\\\\/g;s/"/\\"/g'
 }
 
 run_ndmc() {
@@ -163,12 +172,123 @@ cleanup() {
     "$DESIRED_IDS_FILE" \
     "$REMOVED_FILE" \
     "$MAPPINGS_FILE" \
-    "$ENABLED_PORTS_FILE"
+    "$ENABLED_PORTS_FILE" \
+    "$NEW_MAP_FILE.tmp"
 }
 
 fail() {
   cleanup
   printf '{"ok":false,"error":"%s","details":"%s"}' "$(json_escape "$1")" "$(json_escape "$2")"
+  exit 0
+}
+
+sync_names_only() {
+  cp "$OLD_MAP_FILE" "$NEW_MAP_FILE"
+  : > "$MAPPINGS_FILE"
+  updated=0
+  skipped=0
+  removed=0
+
+  while IFS='|' read -r record_type profile_id name_b64 enabled local_port proxy_hint || [ -n "$record_type$profile_id$name_b64$enabled$local_port$proxy_hint" ]; do
+    record_type=$(printf '%s' "$record_type" | tr -d '\r')
+    [ "$record_type" = "P" ] || continue
+
+    profile_id=$(printf '%s' "$profile_id" | tr -d '\r')
+    enabled=$(printf '%s' "$enabled" | tr -d '\r')
+    local_port=$(printf '%s' "$local_port" | tr -cd '0-9')
+    raw_proxy_hint=$(printf '%s' "$proxy_hint" | tr -d '\r')
+    proxy_hint=$(normalize_proxy_id "$raw_proxy_hint")
+    profile_name=$(sanitize_name "$(decode_name "$name_b64")")
+
+    [ -n "$profile_id" ] || continue
+    [ -n "$profile_name" ] || profile_name="$profile_id"
+    echo "$profile_id" >> "$DESIRED_IDS_FILE"
+
+    candidate="$proxy_hint"
+    [ -n "$candidate" ] || candidate=$(normalize_proxy_id "$(old_proxy_for_id "$profile_id")")
+    [ -n "$candidate" ] || candidate=$(normalize_proxy_id "$(existing_proxy_by_port "$local_port")")
+    [ -n "$candidate" ] || candidate=$(normalize_proxy_id "$(existing_proxy_by_name "$profile_name")")
+
+    if [ -z "$candidate" ] || ! proxy_exists "$candidate"; then
+      skipped=$((skipped + 1))
+      continue
+    fi
+
+    if ! run_ndmc "interface $candidate description \"$(quote_ndmc_string "$profile_name")\""; then
+      fail "Не удалось обновить название $candidate на роутере" "$CMD_OUTPUT"
+    fi
+
+    awk -F'|' -v profile_id="$profile_id" '$1 != profile_id { print $0 }' "$NEW_MAP_FILE" > "$NEW_MAP_FILE.tmp"
+    mv "$NEW_MAP_FILE.tmp" "$NEW_MAP_FILE"
+    echo "$profile_id|$candidate|$profile_name|$enabled|$local_port" >> "$NEW_MAP_FILE"
+    echo "$profile_id|$candidate|$profile_name|$enabled|$local_port" >> "$MAPPINGS_FILE"
+    echo "$candidate" >> "$ASSIGNED_FILE"
+    updated=$((updated + 1))
+  done < "$TMP_INPUT"
+
+  if [ -s "$OLD_MAP_FILE" ]; then
+    while IFS='|' read -r old_id old_proxy old_name old_enabled old_port; do
+      old_proxy=$(normalize_proxy_id "$old_proxy")
+      [ -n "$old_id" ] || continue
+      [ -n "$old_proxy" ] || continue
+
+      if grep -Fxq "$old_id" "$DESIRED_IDS_FILE"; then
+        continue
+      fi
+
+      awk -F'|' -v profile_id="$old_id" '$1 != profile_id { print $0 }' "$NEW_MAP_FILE" > "$NEW_MAP_FILE.tmp"
+      mv "$NEW_MAP_FILE.tmp" "$NEW_MAP_FILE"
+
+      if proxy_taken "$old_proxy"; then
+        continue
+      fi
+
+      run_ndmc "no interface $old_proxy" >/dev/null 2>&1 || true
+      echo "$old_proxy" >> "$REMOVED_FILE"
+      removed=$((removed + 1))
+    done < "$OLD_MAP_FILE"
+  fi
+
+  if ! ndmc -c 'system configuration save' >/tmp/router-proxy-sync-save.$$ 2>&1; then
+    details=$(cat /tmp/router-proxy-sync-save.$$ 2>/dev/null)
+    rm -f /tmp/router-proxy-sync-save.$$
+    fail "Не удалось сохранить конфигурацию Keenetic" "$details"
+  fi
+  rm -f /tmp/router-proxy-sync-save.$$
+
+  cp "$NEW_MAP_FILE" "$MAP_FILE"
+
+  printf '{'
+  printf '"ok":true,'
+  printf '"message":"Названия ProxyN синхронизированы с UI.",'
+  printf '"mapPath":"%s",' "$(json_escape "$MAP_FILE")"
+  printf '"backupPath":"%s",' "$(json_escape "$MAP_BACKUP_PATH")"
+  printf '"runningConfigBackupPath":"%s",' "$(json_escape "$RUNCFG_BACKUP_PATH")"
+  printf '"updated":%s,' "$updated"
+  printf '"skipped":%s,' "$skipped"
+  printf '"removed":%s,' "$removed"
+  printf '"mappings":['
+
+  first_mapping=1
+  while IFS='|' read -r profile_id proxy_id profile_name enabled local_port; do
+    [ -n "$profile_id" ] || continue
+    if [ "$first_mapping" -eq 0 ]; then
+      printf ','
+    fi
+    first_mapping=0
+    printf '{'
+    printf '"id":"%s",' "$(json_escape "$profile_id")"
+    printf '"routerProxyId":"%s",' "$(json_escape "$proxy_id")"
+    printf '"name":"%s",' "$(json_escape "$profile_name")"
+    printf '"enabled":%s,' "$(bool_json "$enabled")"
+    local_port_json=$(printf '%s' "$local_port" | tr -cd '0-9')
+    [ -n "$local_port_json" ] || local_port_json=0
+    printf '"localPort":%s' "$local_port_json"
+    printf '}'
+  done < "$MAPPINGS_FILE"
+
+  printf ']}'
+  cleanup
   exit 0
 }
 
@@ -196,6 +316,7 @@ MAPPINGS_FILE="/opt/tmp/router-proxy-sync-mappings-$$.txt"
 ENABLED_PORTS_FILE="/opt/tmp/router-proxy-sync-enabled-$$.txt"
 
 mkdir -p "$PROFILE_DIR" "$BACKUP_DIR" /opt/tmp
+action=$(query_value action)
 cat > "$TMP_INPUT"
 
 if [ ! -s "$TMP_INPUT" ]; then
@@ -271,6 +392,10 @@ fi
 : > "$MAPPINGS_FILE"
 : > "$ENABLED_PORTS_FILE"
 
+if [ "$action" = "names" ]; then
+  sync_names_only
+fi
+
 while IFS='|' read -r record_type profile_id name_b64 enabled local_port proxy_hint || [ -n "$record_type$profile_id$name_b64$enabled$local_port$proxy_hint" ]; do
   record_type=$(printf '%s' "$record_type" | tr -d '\r')
   [ "$record_type" = "P" ] || continue
@@ -343,7 +468,7 @@ while IFS='|' read -r record_type profile_id name_b64 enabled local_port proxy_h
     fi
   fi
 
-  if ! run_ndmc "interface $candidate description $profile_name"; then
+  if ! run_ndmc "interface $candidate description \"$(quote_ndmc_string "$profile_name")\""; then
     fail "Не удалось сохранить название профиля на роутере" "$CMD_OUTPUT"
   fi
   if ! run_ndmc "interface $candidate proxy protocol socks5"; then

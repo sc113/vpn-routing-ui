@@ -1,6 +1,6 @@
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
-const UI_VERSION = "20260526-0115";
+const UI_VERSION = "20260526-0135";
 const LOCAL_SOCKS_PUBLIC_BIND = "192.168.1.1";
 const LOCAL_SOCKS_INTERNAL_BIND = "127.0.0.1";
 const DIRECT_DNS_ROUTE_TARGET = "ISP";
@@ -556,6 +556,64 @@ function runStatusRefresh() {
     });
 }
 
+function runProxyNamesSync() {
+  if (
+    state.vpnRefreshInFlight ||
+    state.dnsRefreshInFlight ||
+    state.proxyRuntimeBusyId ||
+    state.saveInFlight ||
+    state.clientPolicyBusyMac ||
+    state.routerRuntimeLoading
+  ) {
+    return Promise.reject(new Error("Сначала дождись завершения текущей операции."));
+  }
+
+  const payload = buildRouterSyncPayload(getProfiles());
+  setSaveInFlight(true);
+  showBanner("warn", "Синхронизируем названия ProxyN с именами профилей UI...");
+
+  return fetchJson("/cgi-bin/router-proxy-sync.cgi?action=names", {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+    },
+    body: payload,
+  })
+    .then((data) => {
+      state.profilesDoc = applyRouterSyncMappings(getProfiles(), data);
+      const message =
+        (data && data.message ? data.message : "Названия ProxyN синхронизированы.") +
+        " Обновлено: " +
+        (data && data.updated ? data.updated : 0) +
+        (data && data.skipped ? ", пропущено: " + data.skipped : "") +
+        (data && data.removed ? ", удалено старых: " + data.removed : "") +
+        ".";
+      return loadSupplementalRouterState().then(() => {
+        if (!state.statusSnapshotLoaded) {
+          showBanner("ok", message);
+          return null;
+        }
+        state.routerRuntimeLoading = true;
+        renderProxyRuntimeTable();
+        return loadRouterRuntime().then((runtime) => {
+          state.routerProxies = mergeRouterProxyRuntime(state.routerProxies, runtime && runtime.proxies);
+          state.routerRuntime = normalizeRouterProxyList(runtime && runtime.proxies);
+          state.routerRuntimeLoading = false;
+          state.routerRuntimeError = "";
+          renderProxyRuntimeTable();
+          showBanner("ok", message);
+          return null;
+        });
+      });
+    })
+    .finally(() => {
+      setSaveInFlight(false);
+      renderProfilesTable();
+      renderSelectedOverview();
+      renderProxyRuntimeTable();
+    });
+}
+
 function runClientPoliciesRefresh() {
   if (
     state.vpnRefreshInFlight ||
@@ -958,7 +1016,7 @@ function getRouterProxyRuntime(proxyId) {
   return normalized ? getRouterProxyRuntimeMap().get(normalized) || null : null;
 }
 
-function routerProxyNameMeta(profile) {
+function routerProxyNameMismatch(profile) {
   const proxyId = getEffectiveRouterProxyId(profile, profile && profile.id);
   const proxy = getRouterProxyRuntime(proxyId);
   const routerName = String((proxy && proxy.name) || "").trim();
@@ -966,7 +1024,7 @@ function routerProxyNameMeta(profile) {
   if (!routerName || routerName === profileName) {
     return "";
   }
-  return `<div class="profile-cell-router-name">на роутере: ${escapeHtml(routerName)}</div>`;
+  return routerName;
 }
 
 function getProxyUsageSummary(proxyId) {
@@ -2930,7 +2988,7 @@ function renderProfilesTable() {
           <td>${escapeHtml(protocolLabel(profile.protocol))}</td>
           <td class="profile-cell">
             <div class="profile-cell-name">${escapeHtml(profile.name)}</div>
-            <div class="profile-cell-meta">${enabledPill(profile)}${routerProxyNameMeta(profile)}</div>
+            <div class="profile-cell-meta">${enabledPill(profile)}</div>
           </td>
           <td class="mono">${escapeHtml(profile.server.address || "-")}</td>
           <td class="mono">${profile.server.port ? escapeHtml(profile.server.port) : "-"}</td>
@@ -3275,20 +3333,38 @@ function renderProxyRuntimeTable() {
 
 function renderClientPolicies() {
   const body = $("clientPoliciesTableBody");
+  const note = $("clientPoliciesNotice");
   if (!body) {
     return;
   }
 
+  if (note) {
+    note.className = "runtime-health-note";
+    note.textContent = "";
+    note.hidden = true;
+  }
+
   if (!state.clientPoliciesLoaded && !state.clientPoliciesLoading) {
+    if (note) {
+      note.className = "runtime-health-note";
+      note.textContent =
+        "Список клиентов не считывается автоматически. Нажми ♻️, когда нужен снимок.";
+      note.hidden = false;
+    }
     body.innerHTML = `
       <tr>
-        <td colspan="6" class="table-empty">Список клиентов не читается автоматически, чтобы не грузить слабый роутер. Нажми «Загрузить клиентов» только когда нужен полный маршрут устройств.</td>
+        <td colspan="6" class="table-empty">Снимок клиентов ещё не загружен.</td>
       </tr>
     `;
     return;
   }
 
   if (state.clientPoliciesLoading) {
+    if (note) {
+      note.className = "runtime-health-note";
+      note.textContent = "Считываем список клиентов и полные маршруты с роутера...";
+      note.hidden = false;
+    }
     body.innerHTML = `
       <tr>
         <td colspan="6" class="table-empty">
@@ -3300,9 +3376,14 @@ function renderClientPolicies() {
   }
 
   if (state.clientPoliciesError) {
+    if (note) {
+      note.className = "runtime-health-note is-bad";
+      note.textContent = "Не удалось прочитать режимы клиентов: " + state.clientPoliciesError;
+      note.hidden = false;
+    }
     body.innerHTML = `
       <tr>
-        <td colspan="6" class="table-empty">Не удалось прочитать режимы клиентов: ${escapeHtml(state.clientPoliciesError)}</td>
+        <td colspan="6" class="table-empty">Не удалось прочитать клиентов.</td>
       </tr>
     `;
     return;
@@ -3310,9 +3391,14 @@ function renderClientPolicies() {
 
   const hosts = getClientHosts();
   if (!hosts.length) {
+    if (note) {
+      note.className = "runtime-health-note is-bad";
+      note.textContent = "Keenetic не отдал ни одного клиента из ip hotspot host.";
+      note.hidden = false;
+    }
     body.innerHTML = `
       <tr>
-        <td colspan="6" class="table-empty">Keenetic пока не отдал ни одного клиента в ip hotspot host.</td>
+        <td colspan="6" class="table-empty">Список клиентов пуст.</td>
       </tr>
     `;
     return;
@@ -3583,6 +3669,16 @@ function renderSelectedOverview() {
     : '<span class="status-pill status-neutral">Не проверялся</span>';
   const probe = state.probeResults[profile.id];
   const probeDetails = probe ? escapeHtml(probe.details || "") : "Пока без проверки.";
+  const routerName = routerProxyNameMismatch(profile);
+  const routerNameCard = routerName
+    ? `
+      <div class="selected-overview-card">
+        <div class="label">На роутере</div>
+        <div class="value">${escapeHtml(routerName)}</div>
+        <div class="field-note">Будет приведено к имени профиля кнопкой «Имена ProxyN».</div>
+      </div>
+    `
+    : "";
 
   container.className = "";
   container.innerHTML = `
@@ -3591,6 +3687,7 @@ function renderSelectedOverview() {
         <div class="label">Профиль</div>
         <div class="value">${escapeHtml(profile.name)}</div>
       </div>
+      ${routerNameCard}
       <div class="selected-overview-card">
         <div class="label">Подключение</div>
         <div class="value mono">${escapeHtml(profile.server.address || "-")}:${profile.server.port || "-"}</div>
@@ -5007,6 +5104,11 @@ function wireEvents() {
         });
       } else if (routerActionBtn.getAttribute("data-router-action") === "status-refresh") {
         runStatusRefresh().catch((error) => {
+          showBanner("error", error.message);
+        });
+      } else if (routerActionBtn.getAttribute("data-router-action") === "proxy-names-sync") {
+        runProxyNamesSync().catch((error) => {
+          setSaveInFlight(false);
           showBanner("error", error.message);
         });
       } else if (routerActionBtn.getAttribute("data-router-action") === "vpn-refresh") {
