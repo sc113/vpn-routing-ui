@@ -995,41 +995,35 @@ textarea {
   white-space: nowrap;
 }
 
-.dns-github-table {
+.dns-transfer-table {
   min-width: 780px;
 }
 
-.github-sync-form {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-}
-
-.github-sync-actions,
-.github-sync-stats {
+.dns-transfer-actions,
+.dns-transfer-stats {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
 
-.github-sync-actions button {
+.dns-transfer-actions {
+  margin: 14px 0 12px;
+}
+
+.dns-transfer-actions button {
   white-space: nowrap;
 }
 
-.github-sync-toggle {
-  margin-top: 12px;
-}
-
-.github-sync-stats {
+.dns-transfer-stats {
   margin-top: 14px;
 }
 
-.dns-sync-export {
+.dns-transfer-text {
   min-height: 420px;
   font-size: 12px;
   white-space: pre;
+  resize: vertical;
 }
 
 .dns-bulk-controls {
@@ -2055,15 +2049,11 @@ textarea {
     max-width: none;
   }
 
-  .github-sync-form {
-    grid-template-columns: 1fr;
-  }
-
-  .github-sync-actions {
+  .dns-transfer-actions {
     align-items: stretch;
   }
 
-  .github-sync-actions button {
+  .dns-transfer-actions button {
     width: 100%;
   }
 

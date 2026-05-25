@@ -13,6 +13,6 @@
 
 Рабочая оболочка держится отдельно от временных диагностических файлов. Сборочные/релизные архивы лежат в соседней папке `../release`.
 
-## DNS GitHub Sync
+## DNS Transfer
 
-Страница `shell/www/dns-sync.html` экспортирует текущие Keenetic `domain-list` группы в текстовый формат `vpn-routing-ui dns-groups v1` и применяет такой же raw-файл обратно через `shell/cgi/router-dns-github-sync.cgi`.
+Страница `shell/www/dns-sync.html` экспортирует текущие Keenetic `domain-list` группы в текстовый формат `vpn-routing-ui dns-groups v1` и применяет такой же текст обратно через `shell/cgi/router-dns-text-sync.cgi`. Импорт полностью заменяет DNS-группы роутера содержимым файла, предварительно сохраняя backup `running-config`.

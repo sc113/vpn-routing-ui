@@ -1,10 +1,8 @@
 (function () {
-  const API_URL = "/cgi-bin/router-dns-github-sync.cgi";
+  const API_URL = "/cgi-bin/router-dns-text-sync.cgi";
   const state = {
     loading: false,
-    exportText: "",
-    rawUrl: "",
-    tokenSaved: false,
+    text: "",
   };
 
   function $(id) {
@@ -66,7 +64,7 @@
     return match ? Number(match[1]) : 999999;
   }
 
-  function parseExportText(text) {
+  function parseTransferText(text) {
     const groups = new Map();
     String(text || "")
       .split(/\r?\n/)
@@ -83,64 +81,57 @@
           });
           return;
         }
-        if (parts[0] === "I" && groups.has(parts[1])) {
-          groups.get(parts[1]).includeCount += 1;
+        if (parts[0] === "I" && /^domain-list\d+$/.test(parts[1] || "")) {
+          const group =
+            groups.get(parts[1]) ||
+            {
+              groupId: parts[1],
+              description: "",
+              route: "",
+              includeCount: 0,
+            };
+          group.includeCount += 1;
+          groups.set(parts[1], group);
         }
       });
 
     return Array.from(groups.values()).sort((left, right) => dnsRuleOrder(left.groupId) - dnsRuleOrder(right.groupId));
   }
 
-  function normalizeGithubUrl(value) {
-    const text = String(value || "").trim();
-    const blobMatch = text.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/);
-    if (blobMatch) {
-      return `https://raw.githubusercontent.com/${blobMatch[1]}/${blobMatch[2]}/${blobMatch[3]}/${blobMatch[4]}`;
-    }
-    const rawMatch = text.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)\/raw\/([^/]+)\/(.+)$/);
-    if (rawMatch) {
-      return `https://raw.githubusercontent.com/${rawMatch[1]}/${rawMatch[2]}/${rawMatch[3]}/${rawMatch[4]}`;
-    }
-    return text;
-  }
-
-  function currentUrl() {
-    const normalized = normalizeGithubUrl($("rawUrlInput") ? $("rawUrlInput").value : "");
-    if ($("rawUrlInput")) {
-      $("rawUrlInput").value = normalized;
-    }
-    return normalized;
+  function currentMetrics() {
+    const groups = parseTransferText(state.text);
+    return {
+      groupCount: groups.length,
+      includeCount: groups.reduce((sum, group) => sum + group.includeCount, 0),
+      routeCount: groups.filter((group) => group.route).length,
+    };
   }
 
   function setBusy(busy) {
     state.loading = busy;
     [
       "reloadBtn",
-      "saveUrlBtn",
-      "testFetchBtn",
-      "applyBtn",
-      "saveTokenBtn",
-      "pushCurrentBtn",
-      "copyExportBtn",
-      "downloadExportBtn",
+      "copyTextBtn",
+      "downloadTextBtn",
+      "openFileBtn",
+      "validateTextBtn",
+      "applyTextBtn",
     ].forEach((id) => {
       const element = $(id);
       if (element) element.disabled = busy;
     });
+    if ($("dnsText")) $("dnsText").disabled = busy;
   }
 
   function renderStats(payload) {
-    const container = $("githubStats");
+    const container = $("transferStats");
     if (!container) return;
-    const groupCount = Number(payload && payload.groupCount) || 0;
-    const includeCount = Number(payload && payload.includeCount) || 0;
-    const routeCount = Number(payload && payload.routeCount) || 0;
-    const rawUrl = String((payload && payload.rawUrl) || state.rawUrl || "").trim();
-    const tokenSaved =
-      typeof (payload && payload.tokenSaved) === "boolean" ? payload.tokenSaved : Boolean(state.tokenSaved);
-    state.tokenSaved = tokenSaved;
+    const metrics = payload || currentMetrics();
+    const groupCount = Number(metrics.groupCount) || 0;
+    const includeCount = Number(metrics.includeCount) || 0;
+    const routeCount = Number(metrics.routeCount) || 0;
     container.innerHTML = `
-      <div class="engine-inline-chip ${groupCount ? "chip-ok" : "chip-muted"}">
+      <div class="engine-inline-chip ${groupCount ? "chip-ok" : "chip-warn"}">
         <span class="label">Группы</span>
         <span class="value">${escapeHtml(groupCount)}</span>
       </div>
@@ -152,44 +143,24 @@
         <span class="label">Маршруты</span>
         <span class="value">${escapeHtml(routeCount)}</span>
       </div>
-      <div class="engine-inline-chip ${rawUrl ? "chip-muted" : "chip-warn"}" title="${escapeHtml(rawUrl || "URL не сохранён")}">
-        <span class="label">GitHub</span>
-        <span class="value">${escapeHtml(rawUrl ? "URL задан" : "URL не задан")}</span>
-      </div>
-      <div class="engine-inline-chip ${tokenSaved ? "chip-muted" : "chip-warn"}">
-        <span class="label">Token</span>
-        <span class="value">${escapeHtml(tokenSaved ? "сохранён" : "не задан")}</span>
+      <div class="engine-inline-chip chip-muted">
+        <span class="label">Формат</span>
+        <span class="value">dns-groups v1</span>
       </div>
     `;
-    renderPushHint(rawUrl, tokenSaved);
-  }
-
-  function renderPushHint(rawUrl, tokenSaved) {
-    const hint = $("pushHint");
-    if (!hint) return;
-    const url = String(rawUrl || state.rawUrl || "").trim();
-    const target = parseGithubTarget(url);
-    const parts = [];
-    if (target) {
-      parts.push(`Цель: ${target.owner}/${target.repo}:${target.branch}/${target.path}`);
-    } else {
-      parts.push("Цель GitHub пока не распознана: укажи raw URL на файл в репозитории.");
-    }
-    parts.push(tokenSaved ? "Token сохранён на роутере." : "Token пока не сохранён.");
-    hint.textContent = parts.join(" ");
   }
 
   function renderGroupsTable() {
     const body = $("groupsTableBody");
     if (!body) return;
-    const groups = parseExportText(state.exportText);
+    const groups = parseTransferText(state.text);
     if (!groups.length) {
-      body.innerHTML = '<tr><td colspan="5" class="table-empty">DNS-группы пока не прочитаны.</td></tr>';
+      body.innerHTML = '<tr><td colspan="5" class="table-empty">Вставь DNS-файл или получи снимок с роутера.</td></tr>';
       return;
     }
     body.innerHTML = groups
       .map((group, index) => {
-        const routeClass = group.route ? "status-pill status-ok tiny-status" : "status-pill status-unassigned tiny-status";
+        const routeClass = group.route ? "status-pill status-ok tiny-status" : "status-pill status-neutral tiny-status";
         return `
           <tr>
             <td class="mono">${index + 1}</td>
@@ -203,72 +174,58 @@
       .join("");
   }
 
-  function currentExportMetrics() {
-    const groups = parseExportText(state.exportText);
-    return {
-      groupCount: groups.length,
-      includeCount: groups.reduce((sum, group) => sum + group.includeCount, 0),
-      routeCount: groups.filter((group) => group.route).length,
-    };
-  }
-
-  function renderExport(payload) {
-    state.exportText = String((payload && payload.exportText) || "");
-    state.rawUrl = String((payload && payload.rawUrl) || "").trim();
-    state.tokenSaved = Boolean(payload && payload.tokenSaved);
-    if ($("exportText")) {
-      $("exportText").value = state.exportText;
+  function renderText(text, payload) {
+    state.text = String(text || "");
+    if ($("dnsText")) {
+      $("dnsText").value = state.text;
     }
-    if ($("rawUrlInput") && !$("rawUrlInput").value.trim()) {
-      $("rawUrlInput").value = state.rawUrl;
-    }
-    renderStats(payload || {});
+    renderStats(payload);
     renderGroupsTable();
   }
 
-  function parseGithubTarget(url) {
-    const raw = normalizeGithubUrl(url);
-    const match = raw.match(/^https:\/\/raw\.githubusercontent\.com\/([^/]+)\/([^/]+)\/([^/]+)\/(.+)$/);
-    if (!match) return null;
-    return {
-      owner: match[1],
-      repo: match[2],
-      branch: match[3],
-      path: match[4],
-    };
+  function readTextArea() {
+    state.text = $("dnsText") ? $("dnsText").value : "";
+    renderStats();
+    renderGroupsTable();
   }
 
-  async function loadStatus(message) {
+  async function loadFromRouter(message) {
     setBusy(true);
-    if (!message) showBanner("warn", "Читаем DNS-группы с роутера...");
+    showBanner("warn", "Читаем DNS-файл с роутера...");
     try {
       const data = await fetchJson(API_URL, { cache: "no-store" });
-      renderExport(data);
+      renderText(data.exportText || "", data);
       if (message) {
         showBanner("ok", message);
       } else {
         clearBanner();
       }
     } catch (error) {
-      showBanner("error", "Не удалось прочитать DNS-группы: " + error.message);
+      showBanner("error", "Не удалось получить DNS-файл: " + error.message);
     } finally {
       setBusy(false);
     }
   }
 
-  async function saveUrl() {
-    const url = currentUrl();
+  async function validateText() {
+    readTextArea();
+    if (!state.text.trim()) {
+      showBanner("error", "Вставь DNS-файл перед проверкой.");
+      return;
+    }
     setBusy(true);
-    showBanner("warn", "Сохраняем GitHub URL...");
+    showBanner("warn", "Проверяем DNS-файл...");
     try {
-      const data = await fetchJson(API_URL + "?action=save-url", {
+      const data = await fetchJson(API_URL + "?action=validate", {
         method: "POST",
         headers: { "Content-Type": "text/plain; charset=utf-8" },
-        body: url,
+        body: state.text,
       });
-      state.rawUrl = data.rawUrl || url;
-      renderStats(Object.assign({}, currentExportMetrics(), { rawUrl: state.rawUrl, tokenSaved: state.tokenSaved }));
-      showBanner("ok", data.message || "GitHub URL сохранён.");
+      renderStats(data);
+      showBanner(
+        "ok",
+        `Текст корректен: ${data.groupCount || 0} групп, ${data.includeCount || 0} include, ${data.routeCount || 0} маршрутов.`
+      );
     } catch (error) {
       showBanner("error", error.message);
     } finally {
@@ -276,137 +233,62 @@
     }
   }
 
-  async function saveToken() {
-    const token = $("githubTokenInput") ? $("githubTokenInput").value.trim() : "";
-    if (!token) {
-      showBanner("error", "Вставь GitHub token перед сохранением.");
+  async function applyText() {
+    readTextArea();
+    if (!state.text.trim()) {
+      showBanner("error", "Вставь DNS-файл перед сохранением.");
       return;
     }
-    setBusy(true);
-    showBanner("warn", "Сохраняем GitHub token на роутере...");
-    try {
-      const data = await fetchJson(API_URL + "?action=save-token", {
-        method: "POST",
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-        body: token,
-      });
-      state.tokenSaved = true;
-      if ($("githubTokenInput")) {
-        $("githubTokenInput").value = "";
-      }
-      renderStats(Object.assign({}, currentExportMetrics(), { rawUrl: state.rawUrl, tokenSaved: true }));
-      showBanner("ok", data.message || "GitHub token сохранён.");
-    } catch (error) {
-      showBanner("error", error.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function pushCurrentToGithub() {
-    const url = currentUrl();
-    const token = $("githubTokenInput") ? $("githubTokenInput").value.trim() : "";
-    const target = parseGithubTarget(url);
-    if (!target) {
-      showBanner("error", "Укажи raw.githubusercontent.com URL на файл в репозитории.");
-      return;
-    }
-    if (!token && !state.tokenSaved) {
-      showBanner("error", "Сначала вставь token или сохрани его на роутере.");
+    const metrics = currentMetrics();
+    if (!metrics.groupCount) {
+      showBanner("error", "В тексте не найдено ни одной DNS-группы.");
       return;
     }
     if (
       !window.confirm(
-        `Отправить текущий снимок DNS-групп с роутера в ${target.owner}/${target.repo}:${target.branch}/${target.path}?`
+        `Полностью заменить DNS-группы роутера содержимым поля? Будет применено групп: ${metrics.groupCount}, include: ${metrics.includeCount}. Перед изменением создаётся backup running-config.`
       )
     ) {
       return;
     }
 
     setBusy(true);
-    showBanner("warn", "Отправляем актуальные DNS-группы с роутера в GitHub...");
+    showBanner("warn", "Применяем DNS-файл на роутер...");
     try {
-      const body = [url, token].join("\n");
-      const data = await fetchJson(API_URL + "?action=push-current", {
+      const data = await fetchJson(API_URL + "?action=apply", {
         method: "POST",
         headers: { "Content-Type": "text/plain; charset=utf-8" },
-        body,
+        body: state.text,
       });
-      state.rawUrl = data.rawUrl || url;
-      state.tokenSaved = Boolean(data.tokenSaved || state.tokenSaved);
-      if ($("githubTokenInput")) {
-        $("githubTokenInput").value = "";
+      await loadFromRouter(
+        `${data.message || "DNS-файл сохранён на роутер."} Обновлено групп: ${data.updatedGroups || 0}, удалено: ${
+          data.removedGroups || 0
+        }, include: ${data.includesApplied || 0}.`
+      );
+    } catch (error) {
+      showBanner("error", error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyText() {
+    readTextArea();
+    try {
+      await navigator.clipboard.writeText(state.text || "");
+      showBanner("ok", "DNS-файл скопирован.");
+    } catch (error) {
+      if ($("dnsText")) {
+        $("dnsText").focus();
+        $("dnsText").select();
       }
-      await loadStatus(
-        `${data.message || "Снимок отправлен в GitHub."} Групп: ${data.groupCount || 0}, include: ${
-          data.includeCount || 0
-        }.`
-      );
-    } catch (error) {
-      showBanner("error", error.message);
-    } finally {
-      setBusy(false);
+      showBanner("warn", "Не удалось скопировать автоматически, текст выделен вручную.");
     }
   }
 
-  async function testFetch() {
-    const url = currentUrl();
-    setBusy(true);
-    showBanner("warn", "Проверяем файл на GitHub...");
-    try {
-      const data = await fetchJson(API_URL + "?action=fetch", {
-        method: "POST",
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-        body: url,
-      });
-      renderStats(data);
-      showBanner(
-        "ok",
-        `GitHub-файл корректен: ${data.groupCount || 0} групп, ${data.includeCount || 0} include, ${data.routeCount || 0} маршрутов.`
-      );
-    } catch (error) {
-      showBanner("error", error.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function applyGithubSync() {
-    const url = currentUrl();
-    if (!url) {
-      showBanner("error", "Сначала укажи GitHub raw URL.");
-      return;
-    }
-    const replace = $("replaceMissingInput") && $("replaceMissingInput").checked;
-    const warning = replace
-      ? "Синхронизировать DNS-группы с GitHub и удалить группы, которых нет в файле?"
-      : "Синхронизировать DNS-группы из GitHub, не трогая отсутствующие в файле группы?";
-    if (!window.confirm(warning)) {
-      return;
-    }
-
-    setBusy(true);
-    showBanner("warn", "Скачиваем GitHub-файл и применяем DNS-группы на роутер...");
-    try {
-      const data = await fetchJson(API_URL + "?action=apply&replace=" + (replace ? "1" : "0"), {
-        method: "POST",
-        headers: { "Content-Type": "text/plain; charset=utf-8" },
-        body: url,
-      });
-      await loadStatus(
-        `${data.message || "DNS-группы синхронизированы."} Обновлено групп: ${data.updatedGroups || 0}, include: ${
-          data.includesApplied || 0
-        }.`
-      );
-    } catch (error) {
-      showBanner("error", error.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function downloadExport() {
-    const blob = new Blob([state.exportText || ""], { type: "text/plain;charset=utf-8" });
+  function downloadText() {
+    readTextArea();
+    const blob = new Blob([state.text || ""], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -417,28 +299,34 @@
     URL.revokeObjectURL(url);
   }
 
-  async function copyExport() {
+  function openFile() {
+    const input = $("importFileInput");
+    if (input) input.click();
+  }
+
+  async function importFile(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
     try {
-      await navigator.clipboard.writeText(state.exportText || "");
-      showBanner("ok", "Снимок DNS-групп скопирован.");
+      const text = await file.text();
+      renderText(text);
+      showBanner("ok", `Файл открыт: ${file.name}. Проверь текст и сохрани на роутер.`);
     } catch (error) {
-      if ($("exportText")) {
-        $("exportText").focus();
-        $("exportText").select();
-      }
-      showBanner("warn", "Не удалось скопировать автоматически, текст выделен вручную.");
+      showBanner("error", "Не удалось прочитать файл: " + error.message);
+    } finally {
+      event.target.value = "";
     }
   }
 
   document.addEventListener("DOMContentLoaded", function () {
-    if ($("reloadBtn")) $("reloadBtn").addEventListener("click", () => loadStatus("DNS-группы перечитаны."));
-    if ($("saveUrlBtn")) $("saveUrlBtn").addEventListener("click", saveUrl);
-    if ($("saveTokenBtn")) $("saveTokenBtn").addEventListener("click", saveToken);
-    if ($("testFetchBtn")) $("testFetchBtn").addEventListener("click", testFetch);
-    if ($("applyBtn")) $("applyBtn").addEventListener("click", applyGithubSync);
-    if ($("pushCurrentBtn")) $("pushCurrentBtn").addEventListener("click", pushCurrentToGithub);
-    if ($("downloadExportBtn")) $("downloadExportBtn").addEventListener("click", downloadExport);
-    if ($("copyExportBtn")) $("copyExportBtn").addEventListener("click", copyExport);
-    loadStatus();
+    if ($("reloadBtn")) $("reloadBtn").addEventListener("click", () => loadFromRouter("DNS-файл перечитан с роутера."));
+    if ($("dnsText")) $("dnsText").addEventListener("input", readTextArea);
+    if ($("copyTextBtn")) $("copyTextBtn").addEventListener("click", copyText);
+    if ($("downloadTextBtn")) $("downloadTextBtn").addEventListener("click", downloadText);
+    if ($("openFileBtn")) $("openFileBtn").addEventListener("click", openFile);
+    if ($("importFileInput")) $("importFileInput").addEventListener("change", importFile);
+    if ($("validateTextBtn")) $("validateTextBtn").addEventListener("click", validateText);
+    if ($("applyTextBtn")) $("applyTextBtn").addEventListener("click", applyText);
+    loadFromRouter();
   });
 })();

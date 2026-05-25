@@ -32,7 +32,10 @@ normalize_route_target() {
 }
 
 valid_include() {
-  printf '%s\n' "$1" | grep -Eq '^[A-Za-z0-9._:/\*-]+$'
+  case "$1" in
+    ""|*[!A-Za-z0-9._:/*-]*) return 1 ;;
+    *) return 0 ;;
+  esac
 }
 
 b64_encode() {
@@ -43,60 +46,12 @@ b64_encode() {
   fi
 }
 
-b64_encode_file() {
-  if command -v base64 >/dev/null 2>&1; then
-    base64 "$1" | tr -d '\n'
-  else
-    fail "На роутере нет base64" "Для отправки файла в GitHub нужен base64."
-  fi
-}
-
 b64_decode() {
   if command -v base64 >/dev/null 2>&1; then
     printf '%s' "$1" | base64 -d 2>/dev/null || printf ''
   else
     printf '%s' "$1"
   fi
-}
-
-parse_github_target() {
-  raw_url="$1"
-  GH_OWNER=""
-  GH_REPO=""
-  GH_BRANCH=""
-  GH_PATH=""
-
-  case "$raw_url" in
-    https://raw.githubusercontent.com/*)
-      rest=${raw_url#https://raw.githubusercontent.com/}
-      GH_OWNER=${rest%%/*}
-      rest=${rest#*/}
-      GH_REPO=${rest%%/*}
-      rest=${rest#*/}
-      GH_BRANCH=${rest%%/*}
-      GH_PATH=${rest#*/}
-      ;;
-    https://github.com/*/blob/*)
-      rest=${raw_url#https://github.com/}
-      GH_OWNER=${rest%%/*}
-      rest=${rest#*/}
-      GH_REPO=${rest%%/*}
-      rest=${rest#*/blob/}
-      GH_BRANCH=${rest%%/*}
-      GH_PATH=${rest#*/}
-      ;;
-    https://github.com/*/raw/*)
-      rest=${raw_url#https://github.com/}
-      GH_OWNER=${rest%%/*}
-      rest=${rest#*/}
-      GH_REPO=${rest%%/*}
-      rest=${rest#*/raw/}
-      GH_BRANCH=${rest%%/*}
-      GH_PATH=${rest#*/}
-      ;;
-  esac
-
-  [ -n "$GH_OWNER" ] && [ -n "$GH_REPO" ] && [ -n "$GH_BRANCH" ] && [ -n "$GH_PATH" ]
 }
 
 quote_ndmc_string() {
@@ -196,7 +151,10 @@ acquire_lock() {
 }
 
 cleanup() {
-  rm -f "$RUNCFG_FILE" "$VERIFY_FILE" "$GROUPS_FILE" "$ROUTES_FILE" "$EXPORT_FILE" "$EXPORT_FILE.raw" "$REMOTE_FILE" "$REMOTE_FILE.body" "$DESIRED_GROUPS_FILE" "$DESIRED_INCLUDES_FILE" "$DESIRED_ROUTES_FILE" "$DESIRED_DESCRIPTIONS_FILE" "$STATE_TMP_FILE" "$CMD_FILE" "$FETCH_ERROR_FILE" "$GITHUB_RESPONSE_FILE" "$GITHUB_PAYLOAD_FILE"
+  rm -f "$RUNCFG_FILE" "$GROUPS_FILE" "$ROUTES_FILE" "$EXPORT_FILE" "$EXPORT_RAW_FILE" "$INPUT_FILE" \
+    "$DESIRED_GROUPS_FILE" "$DESIRED_INCLUDES_FILE" "$DESIRED_ROUTES_FILE" "$DESIRED_DESCRIPTIONS_FILE" \
+    "$STATE_TMP_FILE" "$CMD_FILE" "$DESIRED_GROUPS_FILE.tmp" "$DESIRED_ROUTES_FILE.tmp" "$DESIRED_DESCRIPTIONS_FILE.tmp" \
+    "$STATE_TMP_FILE.tmp" "$GROUPS_FILE.tmp" "$ROUTES_FILE.tmp"
   if [ "${LOCK_HELD:-0}" = "1" ]; then
     rm -f "$LOCK_DIR/pid"
     rmdir "$LOCK_DIR" 2>/dev/null
@@ -280,7 +238,7 @@ export_dns_groups() {
       }
     }
   }
-  ' > "$EXPORT_FILE.raw"
+  ' > "$EXPORT_RAW_FILE"
 
   while IFS='|' read -r group_id marker value || [ -n "$group_id$marker$value" ]; do
     [ -n "$group_id" ] || continue
@@ -290,8 +248,7 @@ export_dns_groups() {
     fi
     route_target=$(awk -F'|' -v group_id="$group_id" '$1 == group_id { print $2; exit }' "$ROUTES_FILE")
     printf 'G|%s|%s|%s\n' "$group_id" "$(b64_encode "$(strip_quotes "$marker")")" "$route_target" >> "$EXPORT_FILE"
-  done < "$EXPORT_FILE.raw"
-  rm -f "$EXPORT_FILE.raw"
+  done < "$EXPORT_RAW_FILE"
 }
 
 parse_dns_group_file() {
@@ -320,9 +277,9 @@ parse_dns_group_file() {
           raw_route=${rest#*|}
         fi
         group_id=$(normalize_group_id "$group_id")
-        [ -n "$group_id" ] || fail "Некорректная DNS-группа в GitHub-файле" "Строка $line_no: $line"
+        [ -n "$group_id" ] || fail "Некорректная DNS-группа в файле" "Строка $line_no: $line"
         route_target=$(normalize_route_target "$raw_route")
-        [ -z "$raw_route" ] || [ -n "$route_target" ] || fail "Некорректный DNS-маршрут в GitHub-файле" "Строка $line_no: $line"
+        [ -z "$raw_route" ] || [ -n "$route_target" ] || fail "Некорректный DNS-маршрут в файле" "Строка $line_no: $line"
         description=$(b64_decode "$raw_desc")
         awk -F'|' -v group_id="$group_id" '$1 != group_id { print $0 }' "$DESIRED_GROUPS_FILE" > "$DESIRED_GROUPS_FILE.tmp"
         mv "$DESIRED_GROUPS_FILE.tmp" "$DESIRED_GROUPS_FILE"
@@ -338,41 +295,21 @@ parse_dns_group_file() {
         group_id=${rest%%|*}
         include_value=${rest#*|}
         group_id=$(normalize_group_id "$group_id")
-        [ -n "$group_id" ] || fail "Некорректная DNS-группа у include в GitHub-файле" "Строка $line_no: $line"
-        valid_include "$include_value" || fail "Некорректный include в GitHub-файле" "Строка $line_no: $include_value"
+        [ -n "$group_id" ] || fail "Некорректная DNS-группа у include в файле" "Строка $line_no: $line"
+        valid_include "$include_value" || fail "Некорректный include в файле" "Строка $line_no: $include_value"
         printf '%s|%s\n' "$group_id" "$include_value" >> "$DESIRED_INCLUDES_FILE"
         ;;
       *)
-        fail "Неизвестная строка в GitHub-файле" "Строка $line_no: $line"
+        fail "Неизвестная строка в DNS-файле" "Строка $line_no: $line"
         ;;
     esac
-  done < "$REMOTE_FILE"
+  done < "$INPUT_FILE"
 
-  [ -s "$DESIRED_GROUPS_FILE" ] || fail "В GitHub-файле нет DNS-групп" "Ожидался формат vpn-routing-ui dns-groups v1."
+  [ -s "$DESIRED_GROUPS_FILE" ] || fail "В DNS-файле нет групп" "Ожидался формат vpn-routing-ui dns-groups v1."
+  missing_include_group=$(awk -F'|' 'NR == FNR { groups[$1] = 1; next } !groups[$1] { print $1; exit }' "$DESIRED_GROUPS_FILE" "$DESIRED_INCLUDES_FILE")
+  [ -z "$missing_include_group" ] || fail "Include ссылается на отсутствующую DNS-группу" "$missing_include_group"
   sort_group_ids_file "$DESIRED_GROUPS_FILE"
   sort_routes_file "$DESIRED_ROUTES_FILE"
-}
-
-fetch_remote_file() {
-  remote_url="$1"
-  [ -n "$remote_url" ] || fail "GitHub raw URL не задан" "Укажи raw.githubusercontent.com URL или github.com/.../raw/... ссылку."
-  case "$remote_url" in
-    https://raw.githubusercontent.com/*|https://github.com/*/raw/*|https://gist.githubusercontent.com/*|https://gist.github.com/*)
-      ;;
-    *)
-      fail "Разрешены только raw-ссылки GitHub" "$remote_url"
-      ;;
-  esac
-
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsSL --connect-timeout 10 --max-time 45 "$remote_url" > "$REMOTE_FILE" 2>"$FETCH_ERROR_FILE" ||
-      fail "Не удалось скачать DNS-группы с GitHub" "$(cat "$FETCH_ERROR_FILE" 2>/dev/null)"
-  elif command -v wget >/dev/null 2>&1; then
-    wget -q -O "$REMOTE_FILE" "$remote_url" 2>"$FETCH_ERROR_FILE" ||
-      fail "Не удалось скачать DNS-группы с GitHub" "$(cat "$FETCH_ERROR_FILE" 2>/dev/null)"
-  else
-    fail "На роутере нет curl или wget" "Для синхронизации с GitHub нужен один из этих инструментов."
-  fi
 }
 
 remove_current_route() {
@@ -387,8 +324,7 @@ remove_current_route() {
   fi
 }
 
-apply_remote_groups() {
-  replace_missing="$1"
+apply_text_groups() {
   LOCK_HELD=0
   acquire_lock
   read_running_config
@@ -397,7 +333,7 @@ apply_remote_groups() {
   sort_group_ids_file "$GROUPS_FILE"
 
   STAMP=$(date +%Y%m%d-%H%M%S)
-  BACKUP_PATH="$BACKUP_DIR/ndmc-running-dns-github-$STAMP.txt"
+  BACKUP_PATH="$BACKUP_DIR/ndmc-running-dns-text-$STAMP.txt"
   cp "$RUNCFG_FILE" "$BACKUP_PATH" || fail "Не удалось сохранить backup running-config" "$BACKUP_PATH"
 
   removed=0
@@ -405,17 +341,15 @@ apply_remote_groups() {
   includes_applied=0
   routes_applied=0
 
-  if [ "$replace_missing" = "1" ]; then
-    while IFS= read -r group_id || [ -n "$group_id" ]; do
-      [ -n "$group_id" ] || continue
-      if ! grep -Fxq "$group_id" "$DESIRED_GROUPS_FILE"; then
-        current_route=$(awk -F'|' -v group_id="$group_id" '$1 == group_id { print $2; exit }' "$ROUTES_FILE")
-        remove_current_route "$group_id" "$current_route"
-        run_ndmc "no object-group fqdn $group_id" >/dev/null 2>&1 || true
-        removed=$((removed + 1))
-      fi
-    done < "$GROUPS_FILE"
-  fi
+  while IFS= read -r group_id || [ -n "$group_id" ]; do
+    [ -n "$group_id" ] || continue
+    if ! grep -Fxq "$group_id" "$DESIRED_GROUPS_FILE"; then
+      current_route=$(awk -F'|' -v group_id="$group_id" '$1 == group_id { print $2; exit }' "$ROUTES_FILE")
+      remove_current_route "$group_id" "$current_route"
+      run_ndmc "no object-group fqdn $group_id" >/dev/null 2>&1 || true
+      removed=$((removed + 1))
+    fi
+  done < "$GROUPS_FILE"
 
   while IFS= read -r group_id || [ -n "$group_id" ]; do
     [ -n "$group_id" ] || continue
@@ -451,12 +385,7 @@ apply_remote_groups() {
     updated=$((updated + 1))
   done < "$DESIRED_GROUPS_FILE"
 
-  if [ "$replace_missing" = "1" ]; then
-    cp "$DESIRED_ROUTES_FILE" "$STATE_TMP_FILE" || fail "Не удалось подготовить состояние DNS-маршрутов" "$DESIRED_ROUTES_FILE"
-  else
-    awk -F'|' 'NR == FNR { managed[$1] = 1; next } !managed[$1] { print $0 }' "$DESIRED_GROUPS_FILE" "$ROUTE_STATE_FILE" 2>/dev/null > "$STATE_TMP_FILE" || true
-    cat "$DESIRED_ROUTES_FILE" >> "$STATE_TMP_FILE"
-  fi
+  cp "$DESIRED_ROUTES_FILE" "$STATE_TMP_FILE" || fail "Не удалось подготовить состояние DNS-маршрутов" "$DESIRED_ROUTES_FILE"
   sort_routes_file "$STATE_TMP_FILE"
   cp "$STATE_TMP_FILE" "$ROUTE_STATE_FILE" || fail "Не удалось сохранить состояние DNS-маршрутов" "$ROUTE_STATE_FILE"
 
@@ -473,92 +402,8 @@ apply_remote_groups() {
     fail "Не удалось включить dns-proxy intercept" "$CMD_OUTPUT"
   fi
 
-  printf '{"ok":true,"message":"DNS-группы синхронизированы с GitHub.","updatedGroups":%s,"removedGroups":%s,"includesApplied":%s,"routesApplied":%s,"backupPath":"%s","statePath":"%s"}' \
+  printf '{"ok":true,"message":"DNS-файл сохранён на роутер.","updatedGroups":%s,"removedGroups":%s,"includesApplied":%s,"routesApplied":%s,"backupPath":"%s","statePath":"%s"}' \
     "$updated" "$removed" "$includes_applied" "$routes_applied" "$(json_escape "$BACKUP_PATH")" "$(json_escape "$ROUTE_STATE_FILE")"
-  cleanup
-  exit 0
-}
-
-push_current_to_github() {
-  raw_url="$1"
-  github_token="$2"
-  [ -n "$raw_url" ] || raw_url=$(cat "$CONFIG_FILE" 2>/dev/null)
-  [ -n "$github_token" ] || github_token=$(cat "$TOKEN_FILE" 2>/dev/null)
-
-  [ -n "$raw_url" ] || fail "GitHub raw URL не задан" "Укажи raw URL на файл в репозитории."
-  [ -n "$github_token" ] || fail "GitHub token не задан" "Нужен token с правом Contents: Read and write."
-  if ! parse_github_target "$raw_url"; then
-    fail "Не удалось распознать GitHub URL" "Для отправки нужен файл в репозитории GitHub, не Gist: $raw_url"
-  fi
-
-  if ! command -v curl >/dev/null 2>&1; then
-    fail "На роутере нет curl" "Для отправки файла в GitHub нужен curl."
-  fi
-
-  read_running_config
-  export_dns_groups
-
-  group_count=$(awk -F'|' '$1 == "G" { count++ } END { print count + 0 }' "$EXPORT_FILE")
-  include_count=$(awk -F'|' '$1 == "I" { count++ } END { print count + 0 }' "$EXPORT_FILE")
-  route_count=$(awk -F'|' '$1 == "G" && $4 != "" { count++ } END { print count + 0 }' "$EXPORT_FILE")
-  content_b64=$(b64_encode_file "$EXPORT_FILE")
-  api_url="https://api.github.com/repos/$GH_OWNER/$GH_REPO/contents/$GH_PATH"
-
-  get_code=$(curl -sS -L \
-    -H "Authorization: Bearer $github_token" \
-    -H "Accept: application/vnd.github+json" \
-    -H "X-GitHub-Api-Version: 2022-11-28" \
-    -H "User-Agent: vpn-routing-ui" \
-    -o "$GITHUB_RESPONSE_FILE" \
-    -w "%{http_code}" \
-    "$api_url?ref=$GH_BRANCH" 2>"$FETCH_ERROR_FILE" || true)
-
-  existing_sha=""
-  if [ "$get_code" = "200" ]; then
-    existing_sha=$(sed -n 's/.*"sha"[ ]*:[ ]*"\([^"]*\)".*/\1/p' "$GITHUB_RESPONSE_FILE" | head -n 1)
-  elif [ "$get_code" = "404" ]; then
-    existing_sha=""
-  else
-    fail "GitHub не дал прочитать текущий файл" "HTTP $get_code: $(cat "$GITHUB_RESPONSE_FILE" 2>/dev/null) $(cat "$FETCH_ERROR_FILE" 2>/dev/null)"
-  fi
-
-  message="Update VPN routing DNS groups from router"
-  {
-    printf '{"message":"%s",' "$(json_escape "$message")"
-    printf '"content":"%s",' "$content_b64"
-    printf '"branch":"%s"' "$(json_escape "$GH_BRANCH")"
-    if [ -n "$existing_sha" ]; then
-      printf ',"sha":"%s"' "$(json_escape "$existing_sha")"
-    fi
-    printf '}'
-  } > "$GITHUB_PAYLOAD_FILE"
-
-  put_code=$(curl -sS -L -X PUT \
-    -H "Authorization: Bearer $github_token" \
-    -H "Accept: application/vnd.github+json" \
-    -H "X-GitHub-Api-Version: 2022-11-28" \
-    -H "User-Agent: vpn-routing-ui" \
-    -H "Content-Type: application/json" \
-    -o "$GITHUB_RESPONSE_FILE" \
-    -w "%{http_code}" \
-    --data-binary "@$GITHUB_PAYLOAD_FILE" \
-    "$api_url" 2>"$FETCH_ERROR_FILE" || true)
-
-  case "$put_code" in
-    200|201)
-      ;;
-    *)
-      fail "GitHub не принял обновление файла" "HTTP $put_code: $(cat "$GITHUB_RESPONSE_FILE" 2>/dev/null) $(cat "$FETCH_ERROR_FILE" 2>/dev/null)"
-      ;;
-  esac
-
-  printf '%s\n' "$raw_url" > "$CONFIG_FILE" || fail "Не удалось сохранить GitHub URL" "$CONFIG_FILE"
-  html_url=$(sed -n 's/.*"html_url"[ ]*:[ ]*"\([^"]*\)".*/\1/p' "$GITHUB_RESPONSE_FILE" | head -n 1)
-  token_saved=false
-  [ -s "$TOKEN_FILE" ] && token_saved=true
-
-  printf '{"ok":true,"message":"Актуальный снимок DNS-групп отправлен в GitHub.","rawUrl":"%s","htmlUrl":"%s","owner":"%s","repo":"%s","branch":"%s","path":"%s","groupCount":%s,"includeCount":%s,"routeCount":%s,"tokenSaved":%s}' \
-    "$(json_escape "$raw_url")" "$(json_escape "$html_url")" "$(json_escape "$GH_OWNER")" "$(json_escape "$GH_REPO")" "$(json_escape "$GH_BRANCH")" "$(json_escape "$GH_PATH")" "$group_count" "$include_count" "$route_count" "$token_saved"
   cleanup
   exit 0
 }
@@ -568,11 +413,16 @@ print_status_json() {
   group_count=$(awk -F'|' '$1 == "G" { count++ } END { print count + 0 }' "$EXPORT_FILE")
   include_count=$(awk -F'|' '$1 == "I" { count++ } END { print count + 0 }' "$EXPORT_FILE")
   route_count=$(awk -F'|' '$1 == "G" && $4 != "" { count++ } END { print count + 0 }' "$EXPORT_FILE")
-  saved_url=$(cat "$CONFIG_FILE" 2>/dev/null)
-  token_saved=false
-  [ -s "$TOKEN_FILE" ] && token_saved=true
-  printf '{"ok":true,"rawUrl":"%s","tokenSaved":%s,"groupCount":%s,"includeCount":%s,"routeCount":%s,"exportText":"%s"}' \
-    "$(json_escape "$saved_url")" "$token_saved" "$group_count" "$include_count" "$route_count" "$(json_escape "$export_text")"
+  printf '{"ok":true,"groupCount":%s,"includeCount":%s,"routeCount":%s,"exportText":"%s"}' \
+    "$group_count" "$include_count" "$route_count" "$(json_escape "$export_text")"
+}
+
+print_parsed_json() {
+  group_count=$(wc -l < "$DESIRED_GROUPS_FILE" | tr -d ' ')
+  include_count=$(wc -l < "$DESIRED_INCLUDES_FILE" | tr -d ' ')
+  route_count=$(awk -F'|' '$2 != "" { count++ } END { print count + 0 }' "$DESIRED_ROUTES_FILE")
+  printf '{"ok":true,"message":"DNS-файл корректен.","groupCount":%s,"includeCount":%s,"routeCount":%s}' \
+    "$group_count" "$include_count" "$route_count"
 }
 
 echo "Content-Type: application/json"
@@ -586,75 +436,37 @@ PATH_HELPER=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)/bin/ui-paths.sh
 
 PROFILE_DIR="${VPN_ROUTING_UI_STATE_DIR:-/opt/etc/vpn-routing-ui}"
 BACKUP_DIR="$PROFILE_DIR/backups"
-CONFIG_FILE="$PROFILE_DIR/dns-github-sync.url"
-TOKEN_FILE="$PROFILE_DIR/dns-github-sync.token"
 ROUTE_STATE_FILE="$PROFILE_DIR/dns-routes.state"
 LOCK_DIR="$PROFILE_DIR/dns-routes.lock"
-RUNCFG_FILE="/opt/tmp/router-dns-github-running-$$.txt"
-VERIFY_FILE="/opt/tmp/router-dns-github-verify-$$.txt"
-GROUPS_FILE="/opt/tmp/router-dns-github-groups-$$.txt"
-ROUTES_FILE="/opt/tmp/router-dns-github-routes-$$.txt"
-EXPORT_FILE="/opt/tmp/router-dns-github-export-$$.txt"
-REMOTE_FILE="/opt/tmp/router-dns-github-remote-$$.txt"
-DESIRED_GROUPS_FILE="/opt/tmp/router-dns-github-desired-groups-$$.txt"
-DESIRED_INCLUDES_FILE="/opt/tmp/router-dns-github-desired-includes-$$.txt"
-DESIRED_ROUTES_FILE="/opt/tmp/router-dns-github-desired-routes-$$.txt"
-DESIRED_DESCRIPTIONS_FILE="/opt/tmp/router-dns-github-desired-descriptions-$$.txt"
-STATE_TMP_FILE="/opt/tmp/router-dns-github-state-$$.txt"
-CMD_FILE="/opt/tmp/router-dns-github-cmd-$$.txt"
-FETCH_ERROR_FILE="/opt/tmp/router-dns-github-fetch-$$.txt"
-GITHUB_RESPONSE_FILE="/opt/tmp/router-dns-github-response-$$.json"
-GITHUB_PAYLOAD_FILE="/opt/tmp/router-dns-github-payload-$$.json"
+RUNCFG_FILE="/opt/tmp/router-dns-text-running-$$.txt"
+GROUPS_FILE="/opt/tmp/router-dns-text-groups-$$.txt"
+ROUTES_FILE="/opt/tmp/router-dns-text-routes-$$.txt"
+EXPORT_FILE="/opt/tmp/router-dns-text-export-$$.txt"
+EXPORT_RAW_FILE="/opt/tmp/router-dns-text-export-raw-$$.txt"
+INPUT_FILE="/opt/tmp/router-dns-text-input-$$.txt"
+DESIRED_GROUPS_FILE="/opt/tmp/router-dns-text-desired-groups-$$.txt"
+DESIRED_INCLUDES_FILE="/opt/tmp/router-dns-text-desired-includes-$$.txt"
+DESIRED_ROUTES_FILE="/opt/tmp/router-dns-text-desired-routes-$$.txt"
+DESIRED_DESCRIPTIONS_FILE="/opt/tmp/router-dns-text-desired-descriptions-$$.txt"
+STATE_TMP_FILE="/opt/tmp/router-dns-text-state-$$.txt"
+CMD_FILE="/opt/tmp/router-dns-text-cmd-$$.txt"
 LOCK_HELD=0
 
 mkdir -p "$PROFILE_DIR" "$BACKUP_DIR" /opt/tmp
 
 action=$(query_value action)
-replace=$(query_value replace)
 
 case "$action" in
-  save-url)
-    cat > "$REMOTE_FILE"
-    raw_url=$(sed 's/^[ \t]*//; s/[ \t]*$//' "$REMOTE_FILE")
-    printf '%s\n' "$raw_url" > "$CONFIG_FILE" || fail "Не удалось сохранить GitHub URL" "$CONFIG_FILE"
-    printf '{"ok":true,"message":"GitHub URL сохранён.","rawUrl":"%s"}' "$(json_escape "$raw_url")"
-    cleanup
-    ;;
-  save-token)
-    cat > "$REMOTE_FILE"
-    token=$(sed 's/^[ \t]*//; s/[ \t]*$//' "$REMOTE_FILE")
-    [ -n "$token" ] || fail "GitHub token пустой" "Вставь token перед сохранением."
-    umask 077
-    printf '%s\n' "$token" > "$TOKEN_FILE" || fail "Не удалось сохранить GitHub token" "$TOKEN_FILE"
-    chmod 600 "$TOKEN_FILE" 2>/dev/null || true
-    printf '{"ok":true,"message":"GitHub token сохранён на роутере.","tokenSaved":true}'
-    cleanup
-    ;;
-  push-current)
-    cat > "$REMOTE_FILE.body"
-    raw_url=$(sed -n '1p' "$REMOTE_FILE.body" | sed 's/^[ \t]*//; s/[ \t]*$//')
-    token=$(sed -n '2p' "$REMOTE_FILE.body" | sed 's/^[ \t]*//; s/[ \t]*$//')
-    rm -f "$REMOTE_FILE.body"
-    push_current_to_github "$raw_url" "$token"
-    ;;
-  fetch|apply)
-    cat > "$REMOTE_FILE.body"
-    raw_url=$(sed 's/^[ \t]*//; s/[ \t]*$//' "$REMOTE_FILE.body")
-    rm -f "$REMOTE_FILE.body"
-    [ -n "$raw_url" ] || raw_url=$(cat "$CONFIG_FILE" 2>/dev/null)
-    fetch_remote_file "$raw_url"
+  validate)
+    cat > "$INPUT_FILE"
     parse_dns_group_file
-    group_count=$(wc -l < "$DESIRED_GROUPS_FILE" | tr -d ' ')
-    include_count=$(wc -l < "$DESIRED_INCLUDES_FILE" | tr -d ' ')
-    route_count=$(awk -F'|' '$2 != "" { count++ } END { print count + 0 }' "$DESIRED_ROUTES_FILE")
-    if [ "$action" = "fetch" ]; then
-      printf '{"ok":true,"message":"GitHub-файл прочитан и выглядит корректно.","rawUrl":"%s","groupCount":%s,"includeCount":%s,"routeCount":%s}' \
-        "$(json_escape "$raw_url")" "$group_count" "$include_count" "$route_count"
-      cleanup
-      exit 0
-    fi
-    printf '%s\n' "$raw_url" > "$CONFIG_FILE" || fail "Не удалось сохранить GitHub URL" "$CONFIG_FILE"
-    apply_remote_groups "$replace"
+    print_parsed_json
+    cleanup
+    ;;
+  apply)
+    cat > "$INPUT_FILE"
+    parse_dns_group_file
+    apply_text_groups
     ;;
   *)
     read_running_config

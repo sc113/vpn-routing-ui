@@ -4,7 +4,7 @@
   const statusRows = document.getElementById("statusRows");
   const reloadBtn = document.getElementById("reloadBtn");
   const checkUpdatesBtn = document.getElementById("checkUpdatesBtn");
-  const UI_VERSION = "20260525-0010";
+  const UI_VERSION = "20260525-0610";
   const state = {
     status: null,
     profiles: [],
@@ -684,8 +684,8 @@
         `,
       ),
       quickCard(
-        "DNS GitHub Sync",
-        "Страница для выгрузки текущих domain-list групп в GitHub и синхронизации других роутеров из raw-файла.",
+        "DNS Transfer",
+        "Один текстовый файл для переноса domain-list групп и DNS-маршрутов между роутерами.",
         `
           <div class="engine-inline-chip chip-muted">
             <span class="label">Формат</span>
@@ -696,12 +696,12 @@
             <span class="value">сохраняются</span>
           </div>
           <div class="engine-inline-chip chip-muted">
-            <span class="label">GitHub</span>
-            <span class="value">pull / push</span>
+            <span class="label">Импорт</span>
+            <span class="value">полная замена</span>
           </div>
         `,
         `
-          <a class="button-like secondary" href="/dns-sync.html?v=${UI_VERSION}">Открыть DNS Sync</a>
+          <a class="button-like secondary" href="/dns-sync.html?v=${UI_VERSION}">Открыть DNS Transfer</a>
         `
       ),
     ].join("");
