@@ -947,7 +947,52 @@ textarea {
 }
 
 .dns-routes-table {
-  min-width: 760px;
+  min-width: 920px;
+  table-layout: fixed;
+}
+
+.dns-routes-table .dns-col-num {
+  width: 44px;
+}
+
+.dns-routes-table .dns-col-list {
+  width: 120px;
+}
+
+.dns-routes-table .dns-col-description {
+  width: auto;
+}
+
+.dns-routes-table .dns-col-profile {
+  width: 240px;
+}
+
+.dns-routes-table .dns-col-proxy {
+  width: 78px;
+}
+
+.dns-routes-table .dns-col-status {
+  width: 210px;
+}
+
+.dns-routes-table th:nth-child(2),
+.dns-routes-table td:nth-child(2),
+.dns-routes-table th:nth-child(5),
+.dns-routes-table td:nth-child(5) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dns-routes-table th:nth-child(3),
+.dns-routes-table td:nth-child(3),
+.dns-routes-table th:nth-child(6),
+.dns-routes-table td:nth-child(6) {
+  white-space: normal;
+}
+
+.dns-routes-table td:nth-child(6) .status-pill {
+  margin: 2px 4px 2px 0;
+  white-space: nowrap;
 }
 
 .dns-github-table {
@@ -1121,6 +1166,8 @@ textarea {
 }
 
 .dns-route-select {
+  width: 100%;
+  min-width: 0;
   background: rgba(18, 24, 34, 0.9);
   border-color: rgba(93, 108, 129, 0.46);
   color: var(--text);
@@ -1387,6 +1434,28 @@ textarea {
 
   .engine-row {
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 1100px) {
+  .manage-engine-row {
+    grid-template-columns: 1fr;
+  }
+
+  .manage-engine-row .engine-row-actions-stack {
+    justify-items: stretch;
+  }
+
+  .manage-engine-row .action-cluster {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .manage-engine-row .engine-row-actions button,
+  .manage-engine-row .engine-row-actions .button-like {
+    width: 100%;
+    min-width: 0;
   }
 }
 
