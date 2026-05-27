@@ -947,7 +947,7 @@ textarea {
 }
 
 .dns-routes-table {
-  min-width: 920px;
+  min-width: 1060px;
   table-layout: fixed;
 }
 
@@ -960,11 +960,15 @@ textarea {
 }
 
 .dns-routes-table .dns-col-description {
-  width: auto;
+  width: 230px;
 }
 
 .dns-routes-table .dns-col-profile {
-  width: 240px;
+  width: 260px;
+}
+
+.dns-routes-table .dns-col-lock {
+  width: 64px;
 }
 
 .dns-routes-table .dns-col-proxy {
@@ -972,26 +976,25 @@ textarea {
 }
 
 .dns-routes-table .dns-col-status {
-  width: 210px;
+  width: 260px;
 }
 
 .dns-routes-table th:nth-child(2),
 .dns-routes-table td:nth-child(2),
-.dns-routes-table th:nth-child(5),
-.dns-routes-table td:nth-child(5) {
+.dns-routes-table th:nth-child(6),
+.dns-routes-table td:nth-child(6) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .dns-routes-table th:nth-child(3),
 .dns-routes-table td:nth-child(3),
-.dns-routes-table th:nth-child(6),
-.dns-routes-table td:nth-child(6) {
+.dns-routes-table th:nth-child(7),
+.dns-routes-table td:nth-child(7) {
   white-space: normal;
 }
 
-.dns-routes-table td:nth-child(6) .status-pill {
-  margin: 2px 4px 2px 0;
+.dns-routes-table td:nth-child(7) .status-pill {
   white-space: nowrap;
 }
 
@@ -1163,7 +1166,7 @@ textarea {
 }
 
 .dns-route-hosts {
-  max-width: 560px;
+  max-width: 100%;
   margin-top: 5px;
   color: rgba(159, 176, 200, 0.72);
   font-size: 12px;
@@ -1171,6 +1174,41 @@ textarea {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.dns-route-status-stack {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.dns-route-lock-cell {
+  text-align: center !important;
+}
+
+.dns-route-lock-btn {
+  width: 36px;
+  min-width: 36px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid rgba(93, 108, 129, 0.46);
+  background: rgba(18, 24, 34, 0.8);
+  box-shadow: none;
+  font-size: 15px;
+}
+
+.dns-route-lock-btn:hover {
+  background: rgba(49, 65, 84, 0.96);
+}
+
+.dns-route-lock-btn.is-locked {
+  background: rgba(217, 119, 6, 0.18);
+  border-color: rgba(217, 119, 6, 0.38);
+}
+
+.dns-route-lock-btn.is-locked:hover {
+  background: rgba(217, 119, 6, 0.28);
 }
 
 .client-policies-table {
@@ -1241,6 +1279,10 @@ textarea {
 
 .dns-route-row-direct-first:hover {
   background: linear-gradient(90deg, rgba(34, 166, 153, 0.11), rgba(123, 204, 255, 0.03));
+}
+
+.dns-route-row-locked {
+  box-shadow: inset 3px 0 0 rgba(217, 119, 6, 0.55);
 }
 
 .direct-first-pill {

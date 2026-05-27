@@ -1,11 +1,12 @@
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
-const UI_VERSION = "20260527-0030";
+const UI_VERSION = "20260527-0115";
 const LOCAL_SOCKS_PUBLIC_BIND = "192.168.1.1";
 const LOCAL_SOCKS_INTERNAL_BIND = "127.0.0.1";
 const DIRECT_DNS_ROUTE_TARGET = "ISP";
 const DIRECT_DNS_SELECT_VALUE = "__direct__";
 const AUTO_STORM_LOOPBACK_THRESHOLD = 200;
+const DNS_ROUTE_LOCKS_STORAGE_KEY = "vpn-routing-ui:dns-route-locks:v1";
 
 const SYSTEM_OUTBOUND_TAGS = new Set(["direct", "blocked"]);
 const SYSTEM_OUTBOUND_PROTOCOLS = new Set(["freedom", "blackhole"]);
@@ -42,6 +43,7 @@ const state = {
   dnsRoutes: [],
   dnsRoutesLoading: false,
   dnsRoutesError: "",
+  dnsRouteLocks: {},
   selectedId: null,
   egressResults: {},
   probeResults: {},
@@ -74,6 +76,55 @@ function clone(value) {
 
 function pretty(value) {
   return JSON.stringify(value, null, 2);
+}
+
+function loadDnsRouteLocks() {
+  try {
+    const raw = window.localStorage.getItem(DNS_ROUTE_LOCKS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const locks = {};
+    for (const key of Object.keys(parsed || {})) {
+      const groupId = normalizeDnsRuleId(key);
+      if (groupId && parsed[key]) {
+        locks[groupId] = true;
+      }
+    }
+    return locks;
+  } catch (error) {
+    return {};
+  }
+}
+
+function saveDnsRouteLocks() {
+  try {
+    window.localStorage.setItem(DNS_ROUTE_LOCKS_STORAGE_KEY, JSON.stringify(state.dnsRouteLocks || {}));
+  } catch (error) {
+    // localStorage may be unavailable in private or embedded browser contexts.
+  }
+}
+
+function isDnsRouteLocked(groupId) {
+  const normalizedGroupId = normalizeDnsRuleId(groupId);
+  return Boolean(normalizedGroupId && state.dnsRouteLocks && state.dnsRouteLocks[normalizedGroupId]);
+}
+
+function setDnsRouteLock(groupId, locked) {
+  const normalizedGroupId = normalizeDnsRuleId(groupId);
+  if (!normalizedGroupId) {
+    throw new Error("Некорректный domain-list для замка.");
+  }
+  if (!state.dnsRouteLocks || typeof state.dnsRouteLocks !== "object") {
+    state.dnsRouteLocks = {};
+  }
+  if (locked) {
+    state.dnsRouteLocks[normalizedGroupId] = true;
+  } else {
+    delete state.dnsRouteLocks[normalizedGroupId];
+  }
+  saveDnsRouteLocks();
+  renderDnsBulkControls();
+  renderDnsRoutesTable();
+  updateBusyControls();
 }
 
 function makeProfilesSignature(doc) {
@@ -359,22 +410,30 @@ function updateBusyControls() {
     $("pingSelectedBtn").disabled = busy;
   }
   if ($("dnsBulkProfileSelect")) {
+    const hasUnlockedAssignedDnsRoutes = getUnlockedAssignedDnsRuleIds().length > 0;
     const shouldDisable =
       busy ||
       state.dnsRoutesLoading ||
       Boolean(state.dnsRoutesError) ||
       !getProfiles().length ||
-      !hasAssignedDnsRoutes;
+      !hasAssignedDnsRoutes ||
+      !hasUnlockedAssignedDnsRoutes;
     $("dnsBulkProfileSelect").disabled = shouldDisable;
   }
   if ($("dnsBulkApplyBtn")) {
     const noBulkProfile = !String(($("dnsBulkProfileSelect") && $("dnsBulkProfileSelect").value) || "").trim();
+    const hasUnlockedAssignedDnsRoutes = getUnlockedAssignedDnsRuleIds().length > 0;
     $("dnsBulkApplyBtn").disabled =
       busy ||
       state.dnsRoutesLoading ||
       Boolean(state.dnsRoutesError) ||
       noBulkProfile ||
-      !hasAssignedDnsRoutes;
+      !hasAssignedDnsRoutes ||
+      !hasUnlockedAssignedDnsRoutes;
+  }
+  if ($("dnsRoutesReloadBtn")) {
+    $("dnsRoutesReloadBtn").disabled = busy || state.dnsRoutesLoading;
+    $("dnsRoutesReloadBtn").classList.toggle("is-loading", Boolean(state.dnsRoutesLoading));
   }
   if ($("modalSaveBtn")) {
     $("modalSaveBtn").disabled = busy;
@@ -427,6 +486,48 @@ function runDnsRefresh() {
       updateBusyControls();
       renderSummary();
       renderClientPolicies();
+    });
+}
+
+function runDnsRoutesReload() {
+  if (
+    state.dnsRoutesLoading ||
+    state.dnsRefreshInFlight ||
+    state.vpnRefreshInFlight ||
+    state.proxyRuntimeBusyId ||
+    state.saveInFlight ||
+    state.clientPolicyBusyMac
+  ) {
+    return Promise.reject(
+      new Error("Подожди завершения текущей операции, потом перечитай DNS-маршруты ещё раз.")
+    );
+  }
+
+  state.dnsRoutesLoading = true;
+  state.dnsRoutesError = "";
+  renderDnsBulkControls();
+  renderDnsRoutesTable();
+  updateBusyControls();
+  showBanner("warn", "Перечитываем DNS-маршруты с роутера...");
+
+  return loadDnsRoutes()
+    .then((dnsData) => {
+      state.routerProxies = normalizeRouterProxyList(dnsData && dnsData.proxies);
+      state.profilesDoc = mergeProfilesFromRouterProxies(state.profilesDoc, state.routerProxies);
+      state.dnsRoutes = normalizeDnsRoutes(dnsData);
+      state.profilesDoc = mergeDnsRulesFromRoutes(state.profilesDoc, state.dnsRoutes);
+      state.dnsRoutesLoading = false;
+      state.dnsRoutesError = "";
+      markDnsRoutesApplied(state.dnsRoutes, state.profilesDoc.profiles);
+      renderAll();
+      showBanner("ok", "DNS-маршруты перечитаны с роутера.");
+    })
+    .catch((error) => {
+      state.dnsRoutesLoading = false;
+      state.dnsRoutesError = error.message || String(error);
+      state.appliedDnsRoutesSignature = "";
+      renderAll();
+      throw error;
     });
 }
 
@@ -1620,6 +1721,16 @@ function getCurrentDnsAssignments() {
   return buildDnsAssignmentsFromRoutes(getDnsRoutes(), profiles);
 }
 
+function getAssignedDnsRuleIds() {
+  return Array.from(getCurrentDnsAssignments().keys()).sort(
+    (left, right) => dnsRuleOrder(left) - dnsRuleOrder(right)
+  );
+}
+
+function getUnlockedAssignedDnsRuleIds() {
+  return getAssignedDnsRuleIds().filter((groupId) => !isDnsRouteLocked(groupId));
+}
+
 function getEffectiveDnsRulesForProfile(profile) {
   if (!profile) {
     return [];
@@ -2659,7 +2770,9 @@ function renderDnsBulkControls() {
   const profiles = getProfiles()
     .slice()
     .sort((left, right) => left.name.localeCompare(right.name, "ru"));
-  const assignedCount = getCurrentDnsAssignments().size;
+  const assignedRuleIds = getAssignedDnsRuleIds();
+  const assignedCount = assignedRuleIds.length;
+  const unlockedAssignedCount = assignedRuleIds.filter((groupId) => !isDnsRouteLocked(groupId)).length;
 
   select.innerHTML =
     '<option value="">Выбери профиль</option>' +
@@ -2679,7 +2792,8 @@ function renderDnsBulkControls() {
     state.dnsRoutesLoading ||
     Boolean(state.dnsRoutesError) ||
     !profiles.length ||
-    assignedCount === 0;
+    assignedCount === 0 ||
+    unlockedAssignedCount === 0;
 
   select.disabled = disabled;
   button.disabled = disabled || !String(select.value || "").trim();
@@ -2702,8 +2816,14 @@ function renderDnsBulkControls() {
     return;
   }
 
+  if (!unlockedAssignedCount) {
+    select.title = "Все назначенные DNS-маршруты закреплены замком.";
+    button.title = "Все назначенные DNS-маршруты закреплены замком.";
+    return;
+  }
+
   select.title = "Выбери профиль или прямое подключение для массового переназначения уже выбранных DNS-маршрутов.";
-  button.title = "Переназначить все уже выбранные DNS-маршруты на выбранный вариант.";
+  button.title = "Переназначить незакреплённые DNS-маршруты на выбранный вариант.";
 }
 
 function bulkAssignAssignedDnsRoutes(profileId) {
@@ -2718,34 +2838,41 @@ function bulkAssignAssignedDnsRoutes(profileId) {
     throw new Error("Выбранный профиль не найден.");
   }
 
-  const assignedRules = Array.from(getCurrentDnsAssignments().keys()).sort(
-    (left, right) => dnsRuleOrder(left) - dnsRuleOrder(right)
-  );
+  const assignedRules = getAssignedDnsRuleIds();
+  const editableRules = assignedRules.filter((groupId) => !isDnsRouteLocked(groupId));
+  const skippedLockedCount = assignedRules.length - editableRules.length;
 
   if (!assignedRules.length) {
     showBanner("warn", "Сейчас нет ни одного назначенного DNS-маршрута для массовой замены.");
     return;
   }
 
+  if (!editableRules.length) {
+    showBanner("warn", "Все назначенные DNS-маршруты закреплены замком, массовая замена ничего не меняет.");
+    return;
+  }
+
   if (isDirect) {
-    for (const groupId of assignedRules) {
+    for (const groupId of editableRules) {
       setLocalDnsRouteTarget(groupId, DIRECT_DNS_ROUTE_TARGET);
     }
   } else {
-    for (const groupId of assignedRules) {
+    for (const groupId of editableRules) {
       setLocalDnsRouteTarget(groupId, normalizeRouterProxyId(target.routerProxyId));
     }
   }
   renderAll();
+  const lockedSuffix = skippedLockedCount ? ", закреплённых пропущено: " + skippedLockedCount + "." : ".";
   showBanner(
     "ok",
     isDirect
-      ? "Все уже назначенные DNS-маршруты локально переведены на прямое подключение."
-      : 'Все уже назначенные DNS-маршруты (' +
-          assignedRules.length +
+      ? "Незакреплённые DNS-маршруты (" + editableRules.length + ") локально переведены на прямое подключение" + lockedSuffix
+      : 'Незакреплённые DNS-маршруты (' +
+          editableRules.length +
           ') локально переназначены на профиль "' +
           target.name +
-          '".'
+          '"' +
+          lockedSuffix
   );
 }
 
@@ -3034,7 +3161,7 @@ function renderDnsRoutesTable() {
   if (state.dnsRoutesLoading) {
     body.innerHTML = `
       <tr>
-        <td colspan="6" class="table-empty">
+        <td colspan="7" class="table-empty">
           <span class="status-pill status-pending">Загружаем DNS-маршруты...</span>
         </td>
       </tr>
@@ -3045,7 +3172,7 @@ function renderDnsRoutesTable() {
   if (state.dnsRoutesError) {
     body.innerHTML = `
       <tr>
-        <td colspan="6" class="table-empty">Не удалось загрузить DNS-маршруты: ${escapeHtml(state.dnsRoutesError)}</td>
+        <td colspan="7" class="table-empty">Не удалось загрузить DNS-маршруты: ${escapeHtml(state.dnsRoutesError)}</td>
       </tr>
     `;
     return;
@@ -3087,16 +3214,22 @@ function renderDnsRoutesTable() {
             (runtime.configuredUp || runtime.enabled) &&
             (!runtime.healthy || runtime.link !== "up" || runtime.ctrl !== "running")
         );
-        const statusHtml = assignment
-          ? assignment.enabled
-            ? '<span class="status-pill status-ok tiny-status">Активен</span>' +
-              (proxyProblem
-                ? ' <span class="status-pill status-bad tiny-status">Proxy требует внимания</span>'
-                : "")
-            : '<span class="status-pill status-neutral tiny-status">Профиль выключен</span>'
-          : externalRoute
-            ? '<span class="status-pill status-direct-first tiny-status">Прямое подключение</span>'
-            : '<span class="status-pill status-neutral tiny-status status-unassigned">Нет маршрута</span>';
+        const statusParts = [];
+        if (assignment) {
+          statusParts.push(
+            assignment.enabled
+              ? '<span class="status-pill status-ok tiny-status">Активен</span>'
+              : '<span class="status-pill status-neutral tiny-status">Профиль выключен</span>'
+          );
+          if (assignment.enabled && proxyProblem) {
+            statusParts.push('<span class="status-pill status-bad tiny-status">Proxy требует внимания</span>');
+          }
+        } else if (externalRoute) {
+          statusParts.push('<span class="status-pill status-direct-first tiny-status">Прямое подключение</span>');
+        } else {
+          statusParts.push('<span class="status-pill status-neutral tiny-status status-unassigned">Нет маршрута</span>');
+        }
+        const statusHtml = `<div class="dns-route-status-stack">${statusParts.join("")}</div>`;
         const selectClass = assignment || externalRoute ? "dns-route-select" : "dns-route-select is-unassigned";
         const currentProfileId = assignment ? assignment.profile.id : directRoute ? DIRECT_DNS_SELECT_VALUE : "";
         const disabledAttr = state.saveInFlight ? " disabled" : "";
@@ -3112,10 +3245,15 @@ function renderDnsRoutesTable() {
         const hostSummaryHtml = hostSummary
           ? `<div class="dns-route-hosts" title="${escapeHtml(hostSummary.title)}">${escapeHtml(hostSummary.text)}</div>`
           : "";
-        const descriptionLineHtml = directRoute
-          ? `${escapeHtml(displayDnsRouteDescription(route))} <span class="status-pill status-direct-first tiny-status direct-first-pill">прямое подключение</span>`
-          : escapeHtml(displayDnsRouteDescription(route));
+        const descriptionLineHtml = escapeHtml(displayDnsRouteDescription(route));
         const descriptionHtml = `<div class="dns-route-description">${descriptionLineHtml}</div>${hostSummaryHtml}`;
+        const locked = isDnsRouteLocked(route.groupId);
+        const lockTitle = locked
+          ? "Замок включён: массовое переопределение не изменит этот DNS-список."
+          : "Замок выключен: массовое переопределение может изменить этот DNS-список.";
+        const lockAriaLabel = locked
+          ? "Снять замок с DNS-списка " + route.groupId
+          : "Закрепить DNS-список " + route.groupId;
         const rowClasses = [];
         if (!assignment && !externalRoute) {
           rowClasses.push("muted-row", "dns-route-row-unassigned");
@@ -3125,6 +3263,9 @@ function renderDnsRoutesTable() {
         }
         if (proxyProblem) {
           rowClasses.push("dns-route-row-problem");
+        }
+        if (locked) {
+          rowClasses.push("dns-route-row-locked");
         }
 
           return `
@@ -3137,6 +3278,16 @@ function renderDnsRoutesTable() {
                 ${renderedOptions}
               </select>
             </td>
+            <td class="dns-route-lock-cell">
+              <button
+                type="button"
+                class="icon-btn dns-route-lock-btn${locked ? " is-locked" : ""}"
+                data-dns-route-lock="${escapeHtml(route.groupId)}"
+                aria-pressed="${locked ? "true" : "false"}"
+                aria-label="${escapeHtml(lockAriaLabel)}"
+                title="${escapeHtml(lockTitle)}"
+              >${locked ? "🔒" : "🔓"}</button>
+            </td>
             <td class="mono ${assignment || externalRoute ? "" : "muted-text"}">${escapeHtml(proxyId)}</td>
             <td>${statusHtml}</td>
           </tr>
@@ -3145,7 +3296,7 @@ function renderDnsRoutesTable() {
       .join("") ||
     `
       <tr>
-        <td colspan="6" class="table-empty">На роутере пока нет ни одного списка domain-list для маршрутизации.</td>
+        <td colspan="7" class="table-empty">На роутере пока нет ни одного списка domain-list для маршрутизации.</td>
       </tr>
     `;
 }
@@ -3757,6 +3908,7 @@ function renderAll() {
   renderClientPolicies();
   renderSelectedOverview();
   renderTechnicalPreview();
+  updateBusyControls();
 }
 
 function getModalDraft() {
@@ -5107,6 +5259,10 @@ function wireEvents() {
           renderSummary();
           showBanner("error", error.message);
         });
+      } else if (routerActionBtn.getAttribute("data-router-action") === "dns-routes-reload") {
+        runDnsRoutesReload().catch((error) => {
+          showBanner("error", error.message);
+        });
       } else if (routerActionBtn.getAttribute("data-router-action") === "status-refresh") {
         runStatusRefresh().catch((error) => {
           showBanner("error", error.message);
@@ -5127,6 +5283,24 @@ function wireEvents() {
         runClientPoliciesRefresh().catch((error) => {
           showBanner("error", error.message);
         });
+      }
+      return;
+    }
+
+    const dnsRouteLockBtn = event.target.closest("[data-dns-route-lock]");
+    if (dnsRouteLockBtn) {
+      try {
+        const groupId = dnsRouteLockBtn.getAttribute("data-dns-route-lock");
+        const locked = dnsRouteLockBtn.getAttribute("aria-pressed") !== "true";
+        setDnsRouteLock(groupId, locked);
+        showBanner(
+          "ok",
+          locked
+            ? "DNS-список закреплён: массовое переопределение его пропустит."
+            : "Замок снят: массовое переопределение снова может менять этот DNS-список."
+        );
+      } catch (error) {
+        showBanner("error", error.message);
       }
       return;
     }
@@ -5367,6 +5541,7 @@ function init(message) {
 
 function bootstrap() {
   setStartupLoading(true, "Подготавливаем интерфейс и читаем данные роутера...");
+  state.dnsRouteLocks = loadDnsRouteLocks();
   const prepare = hasExpectedLayout() ? Promise.resolve() : refreshLayoutFromServer();
   return prepare.then(() => {
     if (state.layoutReady) {

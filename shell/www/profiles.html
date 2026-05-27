@@ -7,7 +7,7 @@
   <meta http-equiv="Expires" content="0">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>VPN Routing UI</title>
-  <link rel="stylesheet" href="/app.css?v=20260527-0030">
+  <link rel="stylesheet" href="/app.css?v=20260527-0115">
 </head>
 <body>
   <main class="page">
@@ -104,7 +104,7 @@
         <div class="toolbar-right">
           <a
             class="button-like secondary"
-            href="/dns-sync.html?v=20260527-0030#dns-groups-editor"
+            href="/dns-sync.html?v=20260527-0115#dns-groups-editor"
           >Редактор групп</a>
           <a
             class="button-like ghost"
@@ -112,11 +112,19 @@
             target="_blank"
             rel="noreferrer noopener"
           >Открыть в Keenetic</a>
+          <button
+            id="dnsRoutesReloadBtn"
+            type="button"
+            class="refresh-button"
+            data-router-action="dns-routes-reload"
+            aria-label="Перечитать DNS-маршруты"
+            title="Перечитать DNS-маршруты"
+          >♻️</button>
         </div>
       </div>
 
       <div class="dns-bulk-controls dns-bulk-bar">
-        <label class="dns-bulk-label" for="dnsBulkProfileSelect">Массово назначить активные маршруты</label>
+        <label class="dns-bulk-label" for="dnsBulkProfileSelect">Массово назначить незакреплённые</label>
         <select id="dnsBulkProfileSelect" class="dns-bulk-select">
           <option value="">Выбери профиль</option>
         </select>
@@ -130,6 +138,7 @@
             <col class="dns-col-list">
             <col class="dns-col-description">
             <col class="dns-col-profile">
+            <col class="dns-col-lock">
             <col class="dns-col-proxy">
             <col class="dns-col-status">
           </colgroup>
@@ -139,6 +148,7 @@
               <th>Список</th>
               <th>Описание</th>
               <th>Профиль</th>
+              <th>Замок</th>
               <th>Proxy</th>
               <th>Статус</th>
             </tr>
@@ -571,8 +581,8 @@
     </div>
   </div>
 
-  <script src="/system-health-widget.js?v=20260527-0030"></script>
-  <script src="/profiles.js?v=20260527-0030"></script>
+  <script src="/system-health-widget.js?v=20260527-0115"></script>
+  <script src="/profiles.js?v=20260527-0115"></script>
 </body>
 </html>
 
