@@ -74,6 +74,70 @@ a {
   max-width: 860px;
 }
 
+.app-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  border: 1px solid rgba(126, 148, 178, 0.2);
+  border-radius: 14px;
+  background: rgba(18, 24, 34, 0.72);
+}
+
+.section-tabs {
+  position: sticky;
+  top: 8px;
+  z-index: 12;
+  margin-top: -4px;
+  margin-bottom: 16px;
+  background: rgba(18, 24, 34, 0.92);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(12px);
+}
+
+.app-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 9px 14px;
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 800;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.app-tab:hover,
+.app-tab:focus-visible {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(126, 148, 178, 0.22);
+  outline: none;
+}
+
+.app-tab.active,
+.app-tab[aria-current="page"] {
+  color: #cffff8;
+  background: rgba(34, 166, 153, 0.24);
+  border-color: rgba(34, 166, 153, 0.42);
+}
+
+.app-tab.compact {
+  min-height: 34px;
+  padding: 7px 11px;
+  font-size: 13px;
+}
+
+.panel[id] {
+  scroll-margin-top: 82px;
+}
+
 .toolbar-right {
   display: flex;
   gap: 10px;

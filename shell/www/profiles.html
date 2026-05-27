@@ -20,6 +20,20 @@
       </p>
     </section>
 
+    <nav class="app-tabs" aria-label="Основные разделы">
+      <a class="app-tab" href="/">Overview</a>
+      <a class="app-tab active" href="/profiles.html?v=20260527-0115" aria-current="page">Профили</a>
+      <a class="app-tab" href="/dns-sync.html?v=20260527-0115">DNS Transfer</a>
+    </nav>
+
+    <nav class="app-tabs section-tabs" aria-label="Разделы страницы профилей">
+      <a class="app-tab compact" href="#profile-list">Ключи</a>
+      <a class="app-tab compact" href="#dns-routes">DNS</a>
+      <a class="app-tab compact" href="#proxyRuntimePanel">ProxyN</a>
+      <a class="app-tab compact" href="#clientPoliciesPanel">Устройства</a>
+      <a class="app-tab compact" href="#selected-profile">Детали</a>
+    </nav>
+
     <div id="banner" class="banner"></div>
     <div id="dirtyNotice" class="change-notice" hidden>
       <div class="change-notice-copy">
@@ -41,7 +55,7 @@
       </div>
     </div>
 
-    <section class="panel">
+    <section class="panel" id="system-panel">
       <div class="toolbar">
         <div>
           <h2>Система</h2>
@@ -56,7 +70,7 @@
       <div id="summaryGrid" class="engine-rows"></div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="profile-list">
       <div class="toolbar">
         <div>
           <h2>Список ключей</h2>
@@ -226,7 +240,7 @@
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="selected-profile">
       <div class="toolbar">
         <div>
           <h2>Выбранный профиль</h2>
@@ -240,7 +254,7 @@
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel" id="tech-preview">
       <details id="techPreviewDetails" class="tech-details">
         <summary>Техническое превью</summary>
         <div class="split tech-preview">

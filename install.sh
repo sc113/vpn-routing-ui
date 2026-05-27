@@ -1,0 +1,209 @@
+#!/bin/sh
+
+set -eu
+
+REPO_OWNER="${VPN_ROUTING_UI_REPO_OWNER:-sc113}"
+REPO_NAME="${VPN_ROUTING_UI_REPO_NAME:-vpn-routing-ui}"
+REPO_REF="${VPN_ROUTING_UI_REF:-main}"
+RAW_BASE="https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/$REPO_REF"
+TARBALL_URL="https://github.com/$REPO_OWNER/$REPO_NAME/archive/$REPO_REF.tar.gz"
+
+TARGET_ROOT="/opt/share/vpn-routing-ui"
+TARGET_CGI="$TARGET_ROOT/cgi-bin"
+TARGET_BIN="$TARGET_ROOT/bin"
+TARGET_STATE="/opt/etc/vpn-routing-ui"
+TARGET_RUNTIME="/opt/etc/vpn-routing-ui-runtime"
+TARGET_INIT="/opt/etc/init.d"
+
+LEGACY_ROOT="/opt/share/neofit-ui"
+LEGACY_STATE="/opt/etc/neofit-ui"
+LEGACY_RUNTIME="/opt/etc/router-ui"
+LEGACY_INIT="$TARGET_INIT/S68neofit-ui"
+
+WORK_DIR=""
+
+log() {
+  printf '%s\n' "$*"
+}
+
+fail() {
+  printf 'Ошибка: %s\n' "$*" >&2
+  exit 1
+}
+
+cleanup() {
+  if [ -n "$WORK_DIR" ] && [ -d "$WORK_DIR" ]; then
+    rm -rf "$WORK_DIR"
+  fi
+}
+trap cleanup EXIT INT TERM
+
+copy_if_missing() {
+  src="$1"
+  dst="$2"
+  if [ -e "$src" ] && [ ! -e "$dst" ]; then
+    cp -R "$src" "$dst"
+  fi
+}
+
+download_to_file() {
+  url="$1"
+  dst="$2"
+
+  if command -v curl >/dev/null 2>&1; then
+    curl -fL "$url" -o "$dst"
+    return
+  fi
+
+  if command -v wget >/dev/null 2>&1; then
+    wget -O "$dst" "$url"
+    return
+  fi
+
+  fail "нужен curl или wget. Установи, например: opkg update && opkg install wget-ssl ca-bundle"
+}
+
+ensure_uhttpd() {
+  if [ -x /opt/sbin/uhttpd ]; then
+    return
+  fi
+
+  if [ "${VPN_ROUTING_UI_INSTALL_DEPS:-1}" = "0" ]; then
+    fail "uhttpd не найден в /opt/sbin/uhttpd. Установи: opkg update && opkg install uhttpd"
+  fi
+
+  if command -v opkg >/dev/null 2>&1; then
+    log "uhttpd не найден, пробуем поставить через opkg ..."
+    opkg update
+    opkg install uhttpd
+  fi
+
+  [ -x /opt/sbin/uhttpd ] || fail "uhttpd не найден. Установи: opkg update && opkg install uhttpd"
+}
+
+script_dir() {
+  case "$0" in
+    */*) CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd ;;
+    *) pwd ;;
+  esac
+}
+
+prepare_remote_source() {
+  tmp_base="/opt/tmp"
+  [ -d "$tmp_base" ] || tmp_base="/tmp"
+  WORK_DIR="$tmp_base/vpn-routing-ui-install-$$"
+  archive="$WORK_DIR/source.tar.gz"
+
+  mkdir -p "$WORK_DIR"
+  log "Скачиваем $REPO_OWNER/$REPO_NAME@$REPO_REF ..."
+  download_to_file "$TARBALL_URL" "$archive"
+
+  log "Распаковываем архив ..."
+  tar -xzf "$archive" -C "$WORK_DIR"
+  SRC_ROOT=""
+  for candidate in "$WORK_DIR"/*; do
+    if [ -d "$candidate/shell/www" ]; then
+      SRC_ROOT="$candidate"
+      break
+    fi
+  done
+  [ -n "$SRC_ROOT" ] || fail "в архиве не найдена папка shell/www"
+}
+
+detect_source() {
+  LOCAL_DIR=$(script_dir)
+
+  if [ -d "$LOCAL_DIR/shell/www" ] && [ -d "$LOCAL_DIR/shell/cgi" ] && [ -d "$LOCAL_DIR/shell/router" ]; then
+    SRC_ROOT="$LOCAL_DIR"
+    SRC_MODE="repo"
+    return
+  fi
+
+  if [ -d "$LOCAL_DIR/web" ] && [ -d "$LOCAL_DIR/cgi-bin" ] && [ -d "$LOCAL_DIR/init.d" ]; then
+    SRC_ROOT="$LOCAL_DIR"
+    SRC_MODE="share"
+    return
+  fi
+
+  prepare_remote_source
+  SRC_MODE="repo"
+}
+
+copy_payload() {
+  if [ "$SRC_MODE" = "share" ]; then
+    WEB_SRC="$SRC_ROOT/web"
+    CGI_SRC="$SRC_ROOT/cgi-bin"
+    BIN_SRC="$SRC_ROOT/bin"
+    INIT_SRC="$SRC_ROOT/init.d"
+  else
+    WEB_SRC="$SRC_ROOT/shell/www"
+    CGI_SRC="$SRC_ROOT/shell/cgi"
+    BIN_SRC="$SRC_ROOT/shell/router"
+    INIT_SRC="$SRC_ROOT/shell/router"
+  fi
+
+  [ -d "$WEB_SRC" ] || fail "не найдена папка web: $WEB_SRC"
+  [ -d "$CGI_SRC" ] || fail "не найдена папка cgi: $CGI_SRC"
+  [ -d "$BIN_SRC" ] || fail "не найдена папка bin/router: $BIN_SRC"
+  [ -d "$INIT_SRC" ] || fail "не найдена папка init/router: $INIT_SRC"
+
+  cp -f "$WEB_SRC"/* "$TARGET_ROOT"/
+  cp -f "$CGI_SRC"/* "$TARGET_CGI"/
+
+  if [ "$SRC_MODE" = "share" ]; then
+    cp -f "$BIN_SRC"/* "$TARGET_BIN"/
+  else
+    cp -f "$BIN_SRC/ui-paths.sh" "$TARGET_BIN"/
+  fi
+
+  cp -f "$INIT_SRC/S66vpn-routing-tune" "$TARGET_INIT/S66vpn-routing-tune"
+  cp -f "$INIT_SRC/S67vpn-routing-engine-guard" "$TARGET_INIT/S67vpn-routing-engine-guard"
+  cp -f "$INIT_SRC/S68vpn-routing-ui" "$TARGET_INIT/S68vpn-routing-ui"
+}
+
+if [ "$(id -u 2>/dev/null || echo 1)" != "0" ]; then
+  fail "запусти установку от root"
+fi
+
+log "[1/7] Проверяем Entware ..."
+[ -d /opt ] || fail "Entware не найдено: каталог /opt отсутствует"
+detect_source
+ensure_uhttpd
+
+log "[2/7] Останавливаем старый и новый web-init ..."
+"$TARGET_INIT"/S68vpn-routing-ui stop >/dev/null 2>&1 || true
+[ -x "$LEGACY_INIT" ] && "$LEGACY_INIT" stop >/dev/null 2>&1 || true
+
+log "[3/7] Создаём каталоги ..."
+mkdir -p "$TARGET_ROOT" "$TARGET_CGI" "$TARGET_BIN" "$TARGET_STATE" "$TARGET_RUNTIME" "$TARGET_INIT"
+
+log "[4/7] Подтягиваем старое состояние, если оно уже есть ..."
+copy_if_missing "$LEGACY_STATE/profiles.json" "$TARGET_STATE/profiles.json"
+copy_if_missing "$LEGACY_STATE/dns-routes.state" "$TARGET_STATE/dns-routes.state"
+copy_if_missing "$LEGACY_STATE/router-proxies.map" "$TARGET_STATE/router-proxies.map"
+copy_if_missing "$LEGACY_STATE/backups" "$TARGET_STATE/backups"
+if [ -d "$LEGACY_RUNTIME" ] && [ ! -d "$TARGET_RUNTIME" ]; then
+  cp -R "$LEGACY_RUNTIME" "$TARGET_RUNTIME"
+fi
+
+log "[5/7] Копируем web/CGI/helper/init.d ..."
+copy_payload
+chmod 755 "$TARGET_CGI"/* "$TARGET_BIN"/* \
+  "$TARGET_INIT"/S66vpn-routing-tune \
+  "$TARGET_INIT"/S67vpn-routing-engine-guard \
+  "$TARGET_INIT"/S68vpn-routing-ui
+rm -f "$TARGET_INIT"/S67proxy-runtime-fix "$LEGACY_INIT"
+
+log "[6/7] Запускаем сервисы ..."
+"$TARGET_INIT"/S66vpn-routing-tune start >/dev/null 2>&1 || true
+"$TARGET_INIT"/S67vpn-routing-engine-guard start >/dev/null 2>&1 || true
+"$TARGET_INIT"/S68vpn-routing-ui start >/dev/null 2>&1 || true
+
+log "[7/7] Готово."
+log ""
+log "VPN Routing UI установлен."
+log "Открой: http://ROUTER_IP:92/"
+log "Обычно для Keenetic: http://192.168.1.1:92/"
+log ""
+log "Быстрая переустановка/обновление:"
+log "  wget -qO- $RAW_BASE/install.sh | sh"
