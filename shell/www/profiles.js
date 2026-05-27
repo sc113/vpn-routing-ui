@@ -1,6 +1,5 @@
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
-const UI_VERSION = "20260528-0200";
 const LOCAL_SOCKS_PUBLIC_BIND = "192.168.1.1";
 const LOCAL_SOCKS_INTERNAL_BIND = "127.0.0.1";
 const DIRECT_DNS_ROUTE_TARGET = "ISP";
@@ -1436,7 +1435,7 @@ function hasExpectedLayout() {
 }
 
 function refreshLayoutFromServer() {
-  return fetch("/profiles.html?v=" + UI_VERSION, { cache: "reload" })
+  return fetch("/profiles.html", { cache: "reload" })
     .then((response) => response.text())
     .then((html) => {
       const parser = new DOMParser();

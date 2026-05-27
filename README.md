@@ -97,7 +97,6 @@ Installer попробует поставить отсутствующий `uhtt
   - `S66vpn-routing-tune`
   - `S67vpn-routing-engine-guard`
   - `S68vpn-routing-ui`
-- Переносит старое состояние `neofit-ui`, если оно найдено.
 - Запускает лёгкий web UI на порту `92`.
 
 Важные файлы состояния:

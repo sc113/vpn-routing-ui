@@ -4,7 +4,6 @@
   const statusRows = document.getElementById("statusRows");
   const reloadBtn = document.getElementById("reloadBtn");
   const checkUpdatesBtn = document.getElementById("checkUpdatesBtn");
-  const UI_VERSION = "20260528-0200";
   const state = {
     status: null,
     profiles: [],
@@ -680,7 +679,7 @@
           </div>
         `,
         `
-          <a class="button-like" href="/profiles.html?v=${UI_VERSION}">Открыть конфигурации</a>
+          <a class="button-like" href="/profiles.html">Открыть конфигурации</a>
         `,
       ),
       quickCard(
@@ -701,7 +700,7 @@
           </div>
         `,
         `
-          <a class="button-like secondary" href="/dns-sync.html?v=${UI_VERSION}">Открыть DNS-группы</a>
+          <a class="button-like secondary" href="/dns-sync.html">Открыть DNS-группы</a>
         `
       ),
     ].join("");

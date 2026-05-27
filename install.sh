@@ -15,11 +15,6 @@ TARGET_STATE="/opt/etc/vpn-routing-ui"
 TARGET_RUNTIME="/opt/etc/vpn-routing-ui-runtime"
 TARGET_INIT="/opt/etc/init.d"
 
-LEGACY_ROOT="/opt/share/neofit-ui"
-LEGACY_STATE="/opt/etc/neofit-ui"
-LEGACY_RUNTIME="/opt/etc/router-ui"
-LEGACY_INIT="$TARGET_INIT/S68neofit-ui"
-
 WORK_DIR=""
 
 log() {
@@ -37,14 +32,6 @@ cleanup() {
   fi
 }
 trap cleanup EXIT INT TERM
-
-copy_if_missing() {
-  src="$1"
-  dst="$2"
-  if [ -e "$src" ] && [ ! -e "$dst" ]; then
-    cp -R "$src" "$dst"
-  fi
-}
 
 download_to_file() {
   url="$1"
@@ -149,7 +136,7 @@ copy_payload() {
 
   cp -f "$WEB_SRC"/* "$TARGET_ROOT"/
   cp -f "$CGI_SRC"/* "$TARGET_CGI"/
-  rm -f "$TARGET_ROOT/xray.js"
+  rm -f "$TARGET_ROOT/xray.js" "$TARGET_ROOT/xray.html"
 
   if [ "$SRC_MODE" = "share" ]; then
     cp -f "$BIN_SRC"/* "$TARGET_BIN"/
@@ -171,21 +158,13 @@ log "[1/7] Проверяем Entware ..."
 detect_source
 ensure_uhttpd
 
-log "[2/7] Останавливаем старый и новый web-init ..."
+log "[2/7] Останавливаем web-init ..."
 "$TARGET_INIT"/S68vpn-routing-ui stop >/dev/null 2>&1 || true
-[ -x "$LEGACY_INIT" ] && "$LEGACY_INIT" stop >/dev/null 2>&1 || true
 
 log "[3/7] Создаём каталоги ..."
 mkdir -p "$TARGET_ROOT" "$TARGET_CGI" "$TARGET_BIN" "$TARGET_STATE" "$TARGET_RUNTIME" "$TARGET_INIT"
 
-log "[4/7] Подтягиваем старое состояние, если оно уже есть ..."
-copy_if_missing "$LEGACY_STATE/profiles.json" "$TARGET_STATE/profiles.json"
-copy_if_missing "$LEGACY_STATE/dns-routes.state" "$TARGET_STATE/dns-routes.state"
-copy_if_missing "$LEGACY_STATE/router-proxies.map" "$TARGET_STATE/router-proxies.map"
-copy_if_missing "$LEGACY_STATE/backups" "$TARGET_STATE/backups"
-if [ -d "$LEGACY_RUNTIME" ] && [ ! -d "$TARGET_RUNTIME" ]; then
-  cp -R "$LEGACY_RUNTIME" "$TARGET_RUNTIME"
-fi
+log "[4/7] Готовим чистую структуру VPN Routing UI ..."
 
 log "[5/7] Копируем web/CGI/helper/init.d ..."
 copy_payload
@@ -193,7 +172,7 @@ chmod 755 "$TARGET_CGI"/* "$TARGET_BIN"/* \
   "$TARGET_INIT"/S66vpn-routing-tune \
   "$TARGET_INIT"/S67vpn-routing-engine-guard \
   "$TARGET_INIT"/S68vpn-routing-ui
-rm -f "$TARGET_INIT"/S67proxy-runtime-fix "$LEGACY_INIT"
+rm -f "$TARGET_INIT"/S67proxy-runtime-fix
 
 log "[6/7] Запускаем сервисы ..."
 "$TARGET_INIT"/S66vpn-routing-tune start >/dev/null 2>&1 || true
