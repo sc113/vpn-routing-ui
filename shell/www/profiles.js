@@ -1,6 +1,6 @@
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
-const UI_VERSION = "20260527-0115";
+const UI_VERSION = "20260528-0100";
 const LOCAL_SOCKS_PUBLIC_BIND = "192.168.1.1";
 const LOCAL_SOCKS_INTERNAL_BIND = "127.0.0.1";
 const DIRECT_DNS_ROUTE_TARGET = "ISP";
@@ -1122,6 +1122,66 @@ function getRouterProxyRuntime(proxyId) {
   return normalized ? getRouterProxyRuntimeMap().get(normalized) || null : null;
 }
 
+function runtimeToken(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function routerProxyHasLiveSignal(runtime) {
+  return Boolean(
+    runtime &&
+      (runtime.link ||
+        runtime.ctrl ||
+        runtime.connected ||
+        runtime.state ||
+        runtime.address ||
+        runtime.uptime ||
+        runtime.localEndpoint ||
+        runtime.remoteEndpoint ||
+        runtime.pid ||
+        runtime.loopbackConnections > 0 ||
+        runtime.hasProcess ||
+        runtime.healthy)
+  );
+}
+
+function routerProxyAttentionReason(runtime) {
+  if (!runtime || !(runtime.configuredUp || runtime.enabled)) {
+    return "";
+  }
+  if (runtime.healthy) {
+    return "";
+  }
+  if (!routerProxyHasLiveSignal(runtime)) {
+    return "";
+  }
+
+  const link = runtimeToken(runtime.link);
+  const ctrl = runtimeToken(runtime.ctrl);
+  const connected = runtimeToken(runtime.connected);
+  const stateText = runtimeToken(runtime.state);
+
+  if (link && link !== "up") {
+    return "link: " + runtime.link;
+  }
+  if (ctrl && ctrl !== "running") {
+    return "ctrl: " + runtime.ctrl;
+  }
+  if (connected && connected !== "yes") {
+    return "connected: " + runtime.connected;
+  }
+  if (stateText && stateText !== "up") {
+    return "state: " + runtime.state;
+  }
+  if (!runtime.hasProcess && (runtime.pid || link || ctrl || connected || stateText)) {
+    return "процесс не найден";
+  }
+  return "статус не подтверждён";
+}
+
+function routerProxyNeedsAttention(runtime) {
+  return Boolean(routerProxyAttentionReason(runtime));
+}
+
 function routerProxyNameMismatch(profile) {
   const proxyId = getEffectiveRouterProxyId(profile, profile && profile.id);
   const proxy = getRouterProxyRuntime(proxyId);
@@ -1160,7 +1220,7 @@ function getProxyUsageSummary(proxyId) {
 
 function isRuntimeHealthy(proxyId) {
   const runtime = getRouterProxyRuntime(proxyId);
-  return Boolean(runtime && runtime.healthy);
+  return Boolean(runtime && runtime.healthy && !routerProxyNeedsAttention(runtime));
 }
 
 function makeUniqueProfileName(baseName, skipId) {
@@ -3209,11 +3269,8 @@ function renderDnsRoutesTable() {
         const proxyId = assignment && assignment.enabled && assignment.proxyId ? assignment.proxyId : externalRoute || "-";
         const directRoute = Boolean(externalRoute);
         const runtime = assignment ? getRouterProxyRuntime(assignment.proxyId) : null;
-        const proxyProblem = Boolean(
-          runtime &&
-            (runtime.configuredUp || runtime.enabled) &&
-            (!runtime.healthy || runtime.link !== "up" || runtime.ctrl !== "running")
-        );
+        const proxyProblemReason = assignment && assignment.enabled ? routerProxyAttentionReason(runtime) : "";
+        const proxyProblem = Boolean(proxyProblemReason);
         const statusParts = [];
         if (assignment) {
           statusParts.push(
@@ -3222,7 +3279,13 @@ function renderDnsRoutesTable() {
               : '<span class="status-pill status-neutral tiny-status">Профиль выключен</span>'
           );
           if (assignment.enabled && proxyProblem) {
-            statusParts.push('<span class="status-pill status-bad tiny-status">Proxy требует внимания</span>');
+            statusParts.push(
+              '<span class="status-pill status-bad tiny-status" title="' +
+                escapeHtml("Proxy требует внимания: " + proxyProblemReason) +
+                '">Proxy: ' +
+                escapeHtml(proxyProblemReason) +
+                "</span>"
+            );
           }
         } else if (externalRoute) {
           statusParts.push('<span class="status-pill status-direct-first tiny-status">Прямое подключение</span>');
@@ -3311,9 +3374,7 @@ function renderProxyRuntimeTable() {
   const runtimeList = normalizeRouterProxyList(state.routerProxies).filter(
     (proxy) => proxy.configuredUp || proxy.enabled || proxy.upstreamPort
   );
-  const activeProblems = runtimeList.filter(
-    (proxy) => (proxy.configuredUp || proxy.enabled) && (!proxy.healthy || proxy.ctrl !== "running" || proxy.link !== "up")
-  );
+  const activeProblems = runtimeList.filter(routerProxyNeedsAttention);
   const busyLoopback = runtimeList.filter((proxy) => proxy.loopbackConnections >= 200);
   const systemBusy = Boolean(
     state.systemHealth &&
@@ -3351,7 +3412,9 @@ function renderProxyRuntimeTable() {
       note.className = "runtime-health-note is-bad";
       note.textContent =
         "Сейчас есть проблемные ProxyN: " +
-        activeProblems.map((proxy) => proxy.proxyId).join(", ") +
+        activeProblems
+          .map((proxy) => proxy.proxyId + " (" + routerProxyAttentionReason(proxy) + ")")
+          .join(", ") +
         ". Если DNS-группы смотрят на них, трафик может залипать или отваливаться.";
       note.hidden = false;
     } else if (busyLoopback.length) {
@@ -3422,19 +3485,35 @@ function renderProxyRuntimeTable() {
         );
         const thisBusy = state.proxyRuntimeBusyId === proxy.proxyId;
         const thisAction = thisBusy ? state.proxyRuntimeBusyAction : "";
+        const activeRuntime = Boolean(proxy.configuredUp || proxy.enabled);
+        const attentionReason = routerProxyAttentionReason(proxy);
         const healthHtml = proxy.healthy
           ? '<span class="status-pill status-ok tiny-status">Работает</span>'
-          : '<span class="status-pill status-bad tiny-status">Нужна проверка</span>';
+          : activeRuntime && attentionReason
+            ? '<span class="status-pill status-bad tiny-status" title="' +
+              escapeHtml(attentionReason) +
+              '">Нужна проверка</span>'
+            : activeRuntime
+              ? '<span class="status-pill status-neutral tiny-status">Ожидаем live-статус</span>'
+              : '<span class="status-pill status-neutral tiny-status">Не активен</span>';
         const loopbackClass =
           proxy.loopbackConnections >= 200
             ? "status-bad"
             : proxy.loopbackConnections >= 80
               ? "status-warn"
               : "status-neutral";
+        const hasLiveSignal = routerProxyHasLiveSignal(proxy);
+        const linkClass = activeRuntime && hasLiveSignal ? (proxy.link === "up" ? "status-ok" : "status-bad") : "status-neutral";
+        const ctrlClass = activeRuntime && hasLiveSignal ? (proxy.ctrl === "running" ? "status-ok" : "status-warn") : "status-neutral";
+        const processHtml = proxy.hasProcess
+          ? '<span class="status-pill status-neutral tiny-status mono">pid ' + escapeHtml(proxy.pid || "?") + "</span>"
+          : activeRuntime
+            ? '<span class="status-pill status-bad tiny-status">процесс не найден</span>'
+            : '<span class="status-pill status-neutral tiny-status">процесс выключен</span>';
         const controlHtml =
           '<div class="proxy-runtime-meta">' +
           '<span class="status-pill ' +
-          (proxy.link === "up" ? "status-ok" : "status-bad") +
+          linkClass +
           ' tiny-status">link: ' +
           escapeHtml(proxy.link || "-") +
           "</span>" +
@@ -3444,17 +3523,15 @@ function renderProxyRuntimeTable() {
           escapeHtml(proxy.connected || "-") +
           "</span>" +
           '<span class="status-pill ' +
-          (proxy.ctrl === "running" ? "status-ok" : "status-warn") +
+          ctrlClass +
           ' tiny-status">ctrl: ' +
           escapeHtml(proxy.ctrl || "-") +
           "</span>" +
-          (proxy.hasProcess
-            ? '<span class="status-pill status-neutral tiny-status mono">pid ' + escapeHtml(proxy.pid || "?") + "</span>"
-            : '<span class="status-pill status-bad tiny-status">процесс не найден</span>') +
+          processHtml +
           "</div>";
 
         return `
-          <tr class="${proxy.healthy && proxy.loopbackConnections < 200 ? "" : "dns-route-row-problem"}">
+          <tr class="${attentionReason || proxy.loopbackConnections >= 200 ? "dns-route-row-problem" : ""}">
             <td class="mono col-num">${index + 1}</td>
             <td>
               <div class="client-device-name">${escapeHtml(proxy.proxyId)}</div>

@@ -4,7 +4,7 @@
   const statusRows = document.getElementById("statusRows");
   const reloadBtn = document.getElementById("reloadBtn");
   const checkUpdatesBtn = document.getElementById("checkUpdatesBtn");
-  const UI_VERSION = "20260527-0030";
+  const UI_VERSION = "20260528-0100";
   const state = {
     status: null,
     profiles: [],
@@ -406,7 +406,7 @@
     const url = (info && info.releasesUrl) || githubReleaseUrl(engine);
     const version = info ? compactVersion(info.upstreamVersion) : "";
     return `
-      <div class="engine-inline-chip" title="Справка по upstream-релизам. Устанавливать их напрямую на MIPS стоит только вручную и осознанно.">
+      <div class="engine-inline-chip" title="Справка по upstream-релизам. Ставить их напрямую на роутер стоит только вручную и осознанно.">
         <span class="label">Upstream</span>
         <span class="value">
           <a class="chip-link mono" href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(version || "релизы")} &#8599;</a>
@@ -684,7 +684,7 @@
         `,
       ),
       quickCard(
-        "DNS Transfer",
+        "DNS-группы",
         "Один текстовый файл для переноса domain-list групп и DNS-маршрутов между роутерами.",
         `
           <div class="engine-inline-chip chip-muted">
@@ -701,7 +701,7 @@
           </div>
         `,
         `
-          <a class="button-like secondary" href="/dns-sync.html?v=${UI_VERSION}">Открыть DNS Transfer</a>
+          <a class="button-like secondary" href="/dns-sync.html?v=${UI_VERSION}">Открыть DNS-группы</a>
         `
       ),
     ].join("");
