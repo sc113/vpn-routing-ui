@@ -159,6 +159,21 @@
     };
   }
 
+  function pluralRu(count, one, few, many) {
+    const value = Math.abs(Number(count) || 0);
+    const lastTwo = value % 100;
+    const last = value % 10;
+    if (lastTwo >= 11 && lastTwo <= 14) return many;
+    if (last === 1) return one;
+    if (last >= 2 && last <= 4) return few;
+    return many;
+  }
+
+  function hostCountText(count) {
+    const value = Number(count) || 0;
+    return value + " " + pluralRu(value, "хост", "хоста", "хостов");
+  }
+
   function setBusy(busy) {
     state.loading = busy;
     [
@@ -194,7 +209,7 @@
         <span class="value">${escapeHtml(groupCount)}</span>
       </div>
       <div class="engine-inline-chip ${includeCount ? "chip-ok" : "chip-muted"}">
-        <span class="label">Include</span>
+        <span class="label">Хосты</span>
         <span class="value">${escapeHtml(includeCount)}</span>
       </div>
       <div class="engine-inline-chip ${routeCount ? "chip-ok" : "chip-muted"}">
@@ -230,7 +245,7 @@
             <td class="mono">${escapeHtml(group.groupId)}</td>
             <td>${escapeHtml(group.description || group.groupId)}</td>
             <td>
-              <div class="client-device-name">${escapeHtml(group.includes.length)} include</div>
+              <div class="client-device-name">${escapeHtml(hostCountText(group.includes.length))}</div>
               <div class="client-device-meta">${escapeHtml(includePreview || "пусто")}${escapeHtml(includeExtra)}</div>
             </td>
             <td><span class="${routeClass}">${escapeHtml(group.route || "не назначен")}</span></td>
@@ -433,7 +448,7 @@
       renderStats(data);
       showBanner(
         "ok",
-        `Текст корректен: ${data.groupCount || 0} групп, ${data.includeCount || 0} include, ${data.routeCount || 0} маршрутов.`
+        `Текст корректен: ${data.groupCount || 0} групп, ${hostCountText(data.includeCount || 0)}, ${data.routeCount || 0} маршрутов.`
       );
     } catch (error) {
       showBanner("error", error.message);
@@ -455,7 +470,7 @@
     }
     if (
       !window.confirm(
-        `Полностью заменить DNS-группы роутера содержимым поля? Будет применено групп: ${metrics.groupCount}, include: ${metrics.includeCount}. Перед изменением создаётся backup running-config.`
+        `Полностью заменить DNS-группы роутера содержимым поля? Будет применено групп: ${metrics.groupCount}, ${hostCountText(metrics.includeCount)}. Перед изменением создаётся backup running-config.`
       )
     ) {
       return;
@@ -472,7 +487,7 @@
       await loadFromRouter(
         `${data.message || "DNS-файл сохранён на роутер."} Обновлено групп: ${data.updatedGroups || 0}, удалено: ${
           data.removedGroups || 0
-        }, include: ${data.includesApplied || 0}.`
+        }, применено ${hostCountText(data.includesApplied || 0)}.`
       );
     } catch (error) {
       showBanner("error", error.message);
