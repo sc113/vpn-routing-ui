@@ -14,7 +14,7 @@ num_or_zero() {
 }
 
 cleanup() {
-  rm -f "$TOP_FILE" "$MEM_FILE" 2>/dev/null
+  rm -f "$TOP_FILE" "$MEM_FILE" "$CACHE_TMP_FILE" 2>/dev/null
 }
 
 echo "Content-Type: application/json"
@@ -24,8 +24,19 @@ echo ""
 PATH=/opt/sbin:/opt/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 TOP_FILE="/opt/tmp/router-system-health-top-$$.txt"
 MEM_FILE="/opt/tmp/router-system-health-mem-$$.txt"
+CACHE_FILE="/opt/tmp/router-system-health-cache.json"
+CACHE_TMP_FILE="/opt/tmp/router-system-health-cache-$$.json"
+CACHE_TTL="${ROUTER_SYSTEM_HEALTH_CACHE_TTL:-20}"
 
 mkdir -p /opt/tmp
+
+now_ts=$(date +%s 2>/dev/null || printf '0')
+cache_ts=$(date -r "$CACHE_FILE" +%s 2>/dev/null || printf '0')
+cache_age=$((now_ts - cache_ts))
+if [ -s "$CACHE_FILE" ] && [ "$cache_age" -ge 0 ] 2>/dev/null && [ "$cache_age" -lt "$CACHE_TTL" ] 2>/dev/null; then
+  cat "$CACHE_FILE"
+  exit 0
+fi
 
 top -bn1 > "$TOP_FILE" 2>/dev/null || true
 grep -E 'MemTotal|MemAvailable' /proc/meminfo > "$MEM_FILE" 2>/dev/null || true
@@ -92,33 +103,38 @@ singbox_cpu=$(awk '$0 ~ /sing-box/ { print $8; exit }' "$TOP_FILE" 2>/dev/null)
 xray_cpu=$(awk '$0 ~ /(^|[[:space:]])xray([[:space:]]|$)/ { print $8; exit }' "$TOP_FILE" 2>/dev/null)
 proxy_cpu=$(awk '$0 ~ /hev-socks5-tunnel/ { sum += $8 } END { printf "%.1f", sum + 0 }' "$TOP_FILE" 2>/dev/null)
 
-printf '{'
-printf '"ok":true,'
-printf '"sampledAt":"%s",' "$(json_escape "$(date '+%Y-%m-%d %H:%M:%S %z' 2>/dev/null)")"
-printf '"load":{"one":%s,"five":%s,"fifteen":%s,"onePercent":%s,"fivePercent":%s,"fifteenPercent":%s,"cores":%s,"running":"%s"},' \
-  "$(num_or_zero "$load_one")" \
-  "$(num_or_zero "$load_five")" \
-  "$(num_or_zero "$load_fifteen")" \
-  "$(num_or_zero "$load_one_percent")" \
-  "$(num_or_zero "$load_five_percent")" \
-  "$(num_or_zero "$load_fifteen_percent")" \
-  "$(num_or_zero "$cpu_cores")" \
-  "$(json_escape "$load_running")"
-printf '"cpu":{"user":%s,"system":%s,"idle":%s,"softirq":%s},' \
-  "$(num_or_zero "$cpu_user")" \
-  "$(num_or_zero "$cpu_system")" \
-  "$(num_or_zero "$cpu_idle")" \
-  "$(num_or_zero "$cpu_softirq")"
-printf '"memory":{"totalKb":%s,"availableKb":%s,"usedKb":%s,"usedPercent":%s},' \
-  "$(num_or_zero "$mem_total_kb")" \
-  "$(num_or_zero "$mem_available_kb")" \
-  "$(num_or_zero "$mem_used_kb")" \
-  "$(num_or_zero "$mem_used_percent")"
-printf '"processes":{"ndmCpu":%s,"singboxCpu":%s,"xrayCpu":%s,"proxyCpu":%s}' \
-  "$(num_or_zero "$ndm_cpu")" \
-  "$(num_or_zero "$singbox_cpu")" \
-  "$(num_or_zero "$xray_cpu")" \
-  "$(num_or_zero "$proxy_cpu")"
-printf '}'
+{
+  printf '{'
+  printf '"ok":true,'
+  printf '"sampledAt":"%s",' "$(json_escape "$(date '+%Y-%m-%d %H:%M:%S %z' 2>/dev/null)")"
+  printf '"load":{"one":%s,"five":%s,"fifteen":%s,"onePercent":%s,"fivePercent":%s,"fifteenPercent":%s,"cores":%s,"running":"%s"},' \
+    "$(num_or_zero "$load_one")" \
+    "$(num_or_zero "$load_five")" \
+    "$(num_or_zero "$load_fifteen")" \
+    "$(num_or_zero "$load_one_percent")" \
+    "$(num_or_zero "$load_five_percent")" \
+    "$(num_or_zero "$load_fifteen_percent")" \
+    "$(num_or_zero "$cpu_cores")" \
+    "$(json_escape "$load_running")"
+  printf '"cpu":{"user":%s,"system":%s,"idle":%s,"softirq":%s},' \
+    "$(num_or_zero "$cpu_user")" \
+    "$(num_or_zero "$cpu_system")" \
+    "$(num_or_zero "$cpu_idle")" \
+    "$(num_or_zero "$cpu_softirq")"
+  printf '"memory":{"totalKb":%s,"availableKb":%s,"usedKb":%s,"usedPercent":%s},' \
+    "$(num_or_zero "$mem_total_kb")" \
+    "$(num_or_zero "$mem_available_kb")" \
+    "$(num_or_zero "$mem_used_kb")" \
+    "$(num_or_zero "$mem_used_percent")"
+  printf '"processes":{"ndmCpu":%s,"singboxCpu":%s,"xrayCpu":%s,"proxyCpu":%s}' \
+    "$(num_or_zero "$ndm_cpu")" \
+    "$(num_or_zero "$singbox_cpu")" \
+    "$(num_or_zero "$xray_cpu")" \
+    "$(num_or_zero "$proxy_cpu")"
+  printf '}'
+} > "$CACHE_TMP_FILE"
+
+cat "$CACHE_TMP_FILE"
+mv "$CACHE_TMP_FILE" "$CACHE_FILE" 2>/dev/null || true
 
 cleanup

@@ -427,6 +427,29 @@ apply_single_group() {
   current_route=$(awk -F'|' -v group_id="$group_id" '$1 == group_id { print $2; exit }' "$ROUTES_FILE")
   desired_route=$(awk -F'|' -v group_id="$group_id" '$1 == group_id { print $2; exit }' "$DESIRED_ROUTES_FILE")
   description=$(awk -F'|' -v group_id="$group_id" '$1 == group_id { sub(/^[^|]*\|/, ""); print; exit }' "$DESIRED_DESCRIPTIONS_FILE")
+  desired_include_count=$(awk -F'|' -v group_id="$group_id" '$1 == group_id { count++ } END { print count + 0 }' "$DESIRED_INCLUDES_FILE")
+  current_include_count=$(awk -v group_id="$group_id" '
+  $1 == "object-group" && $2 == "fqdn" && $3 == group_id {
+    inside = 1
+    next
+  }
+  inside && $1 == "!" {
+    inside = 0
+    next
+  }
+  inside && $1 == "include" {
+    count++
+  }
+  END {
+    print count + 0
+  }
+  ' "$RUNCFG_FILE")
+  allow_shrink=$(query_value "allowShrink")
+  if [ "$current_include_count" -gt 0 ] 2>/dev/null &&
+    [ "$desired_include_count" -lt "$current_include_count" ] 2>/dev/null &&
+    [ "$allow_shrink" != "1" ]; then
+    fail "Сохранение остановлено: DNS-группа стала меньше" "$group_id: сейчас $current_include_count хостов, в запросе $desired_include_count. Если это намеренное удаление, подтверди уменьшение ещё раз."
+  fi
 
   remove_current_route "$group_id" "$current_route"
   run_ndmc "no object-group fqdn $group_id" >/dev/null 2>&1 || true

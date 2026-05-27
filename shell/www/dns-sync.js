@@ -343,11 +343,13 @@
     return "domain-list" + index;
   }
 
-  async function applySelectedGroup(group) {
+  async function applySelectedGroup(group, options) {
+    const opts = options || {};
+    const suffix = opts.allowShrink ? "&allowShrink=1" : "";
     setBusy(true);
     showBanner("warn", "Сохраняем на роутер только выбранную DNS-группу...");
     try {
-      const data = await fetchJson(API_URL + "?action=apply-group", {
+      const data = await fetchJson(API_URL + "?action=apply-group" + suffix, {
         method: "POST",
         headers: { "Content-Type": "text/plain; charset=utf-8" },
         body: serializeTransferText([group]),
@@ -377,6 +379,7 @@
       return Promise.resolve();
     }
 
+    const previousHostCount = Array.isArray(group.includes) ? group.includes.length : 0;
     group.description = ($("groupNameInput") ? $("groupNameInput").value : "").trim() || group.groupId;
     group.includes = hostResult.hosts;
     state.selectedGroupId = group.groupId;
@@ -387,7 +390,20 @@
       return Promise.resolve();
     }
 
-    return applySelectedGroup(group);
+    const allowShrink =
+      previousHostCount > 0 &&
+      group.includes.length < previousHostCount &&
+      window.confirm(
+        `В группе ${group.description || group.groupId} станет меньше хостов: ${previousHostCount} -> ${
+          group.includes.length
+        }. Точно сохранить удаление?`
+      );
+    if (previousHostCount > 0 && group.includes.length < previousHostCount && !allowShrink) {
+      showBanner("warn", "Сохранение на роутер отменено: список хостов стал меньше.");
+      return Promise.resolve();
+    }
+
+    return applySelectedGroup(group, { allowShrink });
   }
 
   function addGroup() {
