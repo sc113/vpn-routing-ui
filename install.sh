@@ -149,6 +149,7 @@ copy_payload() {
 
   cp -f "$WEB_SRC"/* "$TARGET_ROOT"/
   cp -f "$CGI_SRC"/* "$TARGET_CGI"/
+  rm -f "$TARGET_ROOT/xray.js"
 
   if [ "$SRC_MODE" = "share" ]; then
     cp -f "$BIN_SRC"/* "$TARGET_BIN"/
