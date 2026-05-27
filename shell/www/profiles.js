@@ -1,6 +1,6 @@
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
-const UI_VERSION = "20260527-0010";
+const UI_VERSION = "20260527-0030";
 const LOCAL_SOCKS_PUBLIC_BIND = "192.168.1.1";
 const LOCAL_SOCKS_INTERNAL_BIND = "127.0.0.1";
 const DIRECT_DNS_ROUTE_TARGET = "ISP";
@@ -774,19 +774,9 @@ function displayDnsRouteDescription(route) {
   return description || (route && route.groupId) || "";
 }
 
-function pluralRu(count, one, few, many) {
-  const value = Math.abs(Number(count) || 0);
-  const lastTwo = value % 100;
-  const last = value % 10;
-  if (lastTwo >= 11 && lastTwo <= 14) return many;
-  if (last === 1) return one;
-  if (last >= 2 && last <= 4) return few;
-  return many;
-}
-
 function hostCountText(count) {
   const value = Number(count) || 0;
-  return value + " " + pluralRu(value, "хост", "хоста", "хостов");
+  return value + " шт.";
 }
 
 function dnsRouteHostSummary(route) {

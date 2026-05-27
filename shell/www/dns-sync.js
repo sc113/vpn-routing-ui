@@ -159,19 +159,9 @@
     };
   }
 
-  function pluralRu(count, one, few, many) {
-    const value = Math.abs(Number(count) || 0);
-    const lastTwo = value % 100;
-    const last = value % 10;
-    if (lastTwo >= 11 && lastTwo <= 14) return many;
-    if (last === 1) return one;
-    if (last >= 2 && last <= 4) return few;
-    return many;
-  }
-
   function hostCountText(count) {
     const value = Number(count) || 0;
-    return value + " " + pluralRu(value, "хост", "хоста", "хостов");
+    return value + " шт.";
   }
 
   function setBusy(busy) {
@@ -287,7 +277,7 @@
       </div>
       <div class="dns-group-editor-actions">
         <button id="saveGroupTextBtn" class="secondary" type="button"${disabled}>Сохранить в текст</button>
-        <button id="saveGroupApplyBtn" class="warning" type="button"${disabled}>Сохранить на роутер</button>
+        <button id="saveGroupApplyBtn" class="warning" type="button"${disabled}>Сохранить эту группу</button>
         <button id="discardGroupBtn" class="ghost" type="button"${disabled}>Отменить</button>
       </div>
     `;
@@ -353,6 +343,26 @@
     return "domain-list" + index;
   }
 
+  async function applySelectedGroup(group) {
+    setBusy(true);
+    showBanner("warn", "Сохраняем на роутер только выбранную DNS-группу...");
+    try {
+      const data = await fetchJson(API_URL + "?action=apply-group", {
+        method: "POST",
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+        body: serializeTransferText([group]),
+      });
+      showBanner(
+        "ok",
+        `${data.message || "DNS-группа сохранена на роутер."} ${group.description || group.groupId}: применено ${hostCountText(
+          data.includesApplied || group.includes.length
+        )}.`
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function saveSelectedGroup(applyRouter) {
     const groups = parseTransferText(state.text);
     const group = selectedGroup(groups);
@@ -377,7 +387,7 @@
       return Promise.resolve();
     }
 
-    return applyText();
+    return applySelectedGroup(group);
   }
 
   function addGroup() {

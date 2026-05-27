@@ -408,6 +408,80 @@ apply_text_groups() {
   exit 0
 }
 
+apply_single_group() {
+  LOCK_HELD=0
+  acquire_lock
+  read_running_config
+  route_lines_from_config "$RUNCFG_FILE" > "$ROUTES_FILE"
+
+  group_count=$(wc -l < "$DESIRED_GROUPS_FILE" | tr -d ' ')
+  [ "$group_count" = "1" ] || fail "Для быстрого сохранения нужна ровно одна DNS-группа" "Получено групп: $group_count"
+
+  group_id=$(cat "$DESIRED_GROUPS_FILE" | head -n 1)
+  [ -n "$group_id" ] || fail "В DNS-файле нет группы" ""
+
+  STAMP=$(date +%Y%m%d-%H%M%S)
+  BACKUP_PATH="$BACKUP_DIR/ndmc-running-dns-group-$group_id-$STAMP.txt"
+  cp "$RUNCFG_FILE" "$BACKUP_PATH" || fail "Не удалось сохранить backup running-config" "$BACKUP_PATH"
+
+  current_route=$(awk -F'|' -v group_id="$group_id" '$1 == group_id { print $2; exit }' "$ROUTES_FILE")
+  desired_route=$(awk -F'|' -v group_id="$group_id" '$1 == group_id { print $2; exit }' "$DESIRED_ROUTES_FILE")
+  description=$(awk -F'|' -v group_id="$group_id" '$1 == group_id { sub(/^[^|]*\|/, ""); print; exit }' "$DESIRED_DESCRIPTIONS_FILE")
+
+  remove_current_route "$group_id" "$current_route"
+  run_ndmc "no object-group fqdn $group_id" >/dev/null 2>&1 || true
+  if ! run_ndmc "object-group fqdn $group_id"; then
+    fail "Не удалось создать DNS-группу" "$group_id: $CMD_OUTPUT"
+  fi
+  if [ -n "$description" ]; then
+    if ! run_ndmc "object-group fqdn $group_id description \"$(quote_ndmc_string "$description")\""; then
+      fail "Не удалось сохранить описание DNS-группы" "$group_id: $CMD_OUTPUT"
+    fi
+  fi
+
+  includes_applied=0
+  while IFS='|' read -r include_group include_value || [ -n "$include_group$include_value" ]; do
+    [ "$include_group" = "$group_id" ] || continue
+    if ! run_ndmc "object-group fqdn $group_id include $include_value"; then
+      fail "Не удалось добавить хост в DNS-группу" "$group_id -> $include_value: $CMD_OUTPUT"
+    fi
+    includes_applied=$((includes_applied + 1))
+  done < "$DESIRED_INCLUDES_FILE"
+
+  routes_applied=0
+  if [ -n "$desired_route" ]; then
+    if ! run_ndmc "dns-proxy route object-group $group_id $desired_route auto reject"; then
+      fail "Не удалось создать DNS-маршрут" "$group_id -> $desired_route: $CMD_OUTPUT"
+    fi
+    routes_applied=1
+  fi
+
+  awk -F'|' -v group_id="$group_id" '$1 != group_id { print $0 }' "$ROUTES_FILE" > "$STATE_TMP_FILE"
+  if [ -n "$desired_route" ]; then
+    printf '%s|%s\n' "$group_id" "$desired_route" >> "$STATE_TMP_FILE"
+  fi
+  sort_routes_file "$STATE_TMP_FILE"
+  cp "$STATE_TMP_FILE" "$ROUTE_STATE_FILE" || fail "Не удалось сохранить состояние DNS-маршрутов" "$ROUTE_STATE_FILE"
+
+  if ! ndmc -c 'system configuration save' > "$CMD_FILE" 2>&1; then
+    fail "Не удалось сохранить running-config Keenetic" "$(cat "$CMD_FILE" 2>/dev/null)"
+  fi
+  : > "$CMD_FILE"
+
+  if ! run_ndmc "no dns-proxy intercept enable"; then
+    fail "Не удалось отключить dns-proxy intercept" "$CMD_OUTPUT"
+  fi
+  sleep 1
+  if ! run_ndmc "dns-proxy intercept enable"; then
+    fail "Не удалось включить dns-proxy intercept" "$CMD_OUTPUT"
+  fi
+
+  printf '{"ok":true,"message":"DNS-группа сохранена на роутер.","updatedGroups":1,"removedGroups":0,"includesApplied":%s,"routesApplied":%s,"groupId":"%s","backupPath":"%s","statePath":"%s"}' \
+    "$includes_applied" "$routes_applied" "$(json_escape "$group_id")" "$(json_escape "$BACKUP_PATH")" "$(json_escape "$ROUTE_STATE_FILE")"
+  cleanup
+  exit 0
+}
+
 print_status_json() {
   export_text=$(cat "$EXPORT_FILE" 2>/dev/null)
   group_count=$(awk -F'|' '$1 == "G" { count++ } END { print count + 0 }' "$EXPORT_FILE")
@@ -467,6 +541,11 @@ case "$action" in
     cat > "$INPUT_FILE"
     parse_dns_group_file
     apply_text_groups
+    ;;
+  apply-group)
+    cat > "$INPUT_FILE"
+    parse_dns_group_file
+    apply_single_group
     ;;
   *)
     read_running_config
