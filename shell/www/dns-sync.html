@@ -10,9 +10,30 @@
   <link rel="stylesheet" href="/app.css?v=20260527-0030">
 </head>
 <body>
-  <main class="page">
-    <a class="top-link" href="/">&larr; На главную</a>
+  <div class="app-shell">
+    <aside class="app-sidebar" aria-label="Основные разделы">
+      <div class="app-sidebar-brand">
+        <strong>VPN Routing UI</strong>
+        <span>MIPS light</span>
+      </div>
+      <nav class="app-sidebar-nav">
+        <a class="side-tab" href="/">
+          <span class="side-tab-icon" aria-hidden="true">◷</span>
+          <span>Overview</span>
+        </a>
+        <a class="side-tab" href="/profiles.html?v=20260527-0115">
+          <span class="side-tab-icon" aria-hidden="true">≡</span>
+          <span>Профили</span>
+        </a>
+        <a class="side-tab active" href="/dns-sync.html?v=20260527-0115" aria-current="page">
+          <span class="side-tab-icon" aria-hidden="true">⇄</span>
+          <span>DNS Transfer</span>
+        </a>
+      </nav>
+      <div class="app-sidebar-foot">Keenetic + Entware</div>
+    </aside>
 
+    <main class="page">
     <section class="hero">
       <h1>DNS Transfer</h1>
       <p>
@@ -20,12 +41,6 @@
         Сначала получи актуальный снимок, затем вставь этот текст на другом роутере и примени его.
       </p>
     </section>
-
-    <nav class="app-tabs" aria-label="Основные разделы">
-      <a class="app-tab" href="/">Overview</a>
-      <a class="app-tab" href="/profiles.html?v=20260527-0115">Профили</a>
-      <a class="app-tab active" href="/dns-sync.html?v=20260527-0115" aria-current="page">DNS Transfer</a>
-    </nav>
 
     <div id="banner" class="banner"></div>
 
@@ -99,7 +114,8 @@
         </aside>
       </div>
     </section>
-  </main>
+    </main>
+  </div>
 
   <script src="/system-health-widget.js?v=20260527-0030"></script>
   <script src="/dns-sync.js?v=20260527-0030"></script>
