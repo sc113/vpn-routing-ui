@@ -320,8 +320,41 @@ function progressStep(index, total, title) {
   return "Шаг " + index + " из " + total + ": " + title;
 }
 
+function ensureSaveProgressUi() {
+  let progress = $("saveProgress");
+  if (progress) {
+    return progress;
+  }
+
+  const notice = $("dirtyNotice");
+  if (!notice) {
+    return null;
+  }
+
+  const copy = notice.querySelector(".change-notice-copy") || notice;
+  const existingTitle = copy.querySelector(".change-notice-title");
+  if (existingTitle && !existingTitle.id) {
+    existingTitle.id = "dirtyNoticeTitle";
+  }
+
+  progress = document.createElement("div");
+  progress.id = "saveProgress";
+  progress.className = "operation-progress";
+  progress.hidden = true;
+  progress.innerHTML =
+    '<div class="operation-progress-head">' +
+    '<span id="saveProgressStep" class="operation-progress-step">Готовим отправку</span>' +
+    '<span id="saveProgressPercent" class="operation-progress-percent">0%</span>' +
+    "</div>" +
+    '<div class="operation-progress-track" aria-hidden="true">' +
+    '<div id="saveProgressBar" class="operation-progress-bar"></div>' +
+    "</div>";
+  copy.appendChild(progress);
+  return progress;
+}
+
 function renderSaveProgress() {
-  const progress = $("saveProgress");
+  const progress = ensureSaveProgressUi();
   if (!progress) {
     return;
   }
