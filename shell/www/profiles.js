@@ -48,6 +48,7 @@ const state = {
   probeResults: {},
   pingAllInFlight: false,
   saveInFlight: false,
+  saveProgress: null,
   dnsRefreshInFlight: false,
   vpnRefreshInFlight: false,
   proxyRuntimeBusyId: "",
@@ -304,6 +305,59 @@ function clearBanner() {
   banner.textContent = "";
 }
 
+function clampProgressPercent(value) {
+  const number = Math.round(toNumber(value));
+  if (number <= 0) {
+    return 0;
+  }
+  if (number >= 100) {
+    return 100;
+  }
+  return number;
+}
+
+function progressStep(index, total, title) {
+  return "Шаг " + index + " из " + total + ": " + title;
+}
+
+function renderSaveProgress() {
+  const progress = $("saveProgress");
+  if (!progress) {
+    return;
+  }
+
+  const data = state.saveProgress;
+  const visible = Boolean(state.saveInFlight && data);
+  progress.hidden = !visible;
+  if (!visible) {
+    return;
+  }
+
+  const percent = clampProgressPercent(data.percent);
+  const stepNode = $("saveProgressStep");
+  const percentNode = $("saveProgressPercent");
+  const barNode = $("saveProgressBar");
+
+  if (stepNode) {
+    stepNode.textContent = data.step || "Выполняем операцию на роутере";
+  }
+  if (percentNode) {
+    percentNode.textContent = percent + "%";
+  }
+  if (barNode) {
+    barNode.style.width = percent + "%";
+  }
+}
+
+function setSaveProgress(percent, step, detail) {
+  state.saveProgress = {
+    percent: clampProgressPercent(percent),
+    step: step || "Выполняем операцию на роутере",
+    detail: detail || step || "Выполняем операцию на роутере.",
+  };
+  renderDirtyNotice();
+}
+
 function setStartupLoading(visible, text) {
   const box = $("startupLoading");
   const textNode = $("startupLoadingText");
@@ -337,6 +391,7 @@ function markDnsRoutesApplied(routes, profiles) {
 
 function renderDirtyNotice() {
   const notice = $("dirtyNotice");
+  const title = $("dirtyNoticeTitle");
   const text = $("dirtyNoticeText");
   const button = $("dirtySaveBtn");
   if (!notice || !text || !button) {
@@ -353,9 +408,20 @@ function renderDirtyNotice() {
   button.textContent = state.saveInFlight ? "Отправляем..." : "Отправить на роутер";
 
   if (state.saveInFlight) {
-    text.textContent = "Изменения отправляются на роутер. Пока идёт применение, повторные действия временно заблокированы.";
+    if (title) {
+      title.textContent = "Отправляем на роутер";
+    }
+    text.textContent =
+      (state.saveProgress && state.saveProgress.detail) ||
+      "Изменения отправляются на роутер. Пока идёт применение, повторные действия временно заблокированы.";
+    renderSaveProgress();
     return;
   }
+
+  if (title) {
+    title.textContent = "Есть локальные изменения";
+  }
+  renderSaveProgress();
 
   if (!dirty) {
     return;
@@ -442,6 +508,16 @@ function updateBusyControls() {
 
 function setSaveInFlight(value) {
   state.saveInFlight = Boolean(value);
+  if (state.saveInFlight && !state.saveProgress) {
+    state.saveProgress = {
+      percent: 0,
+      step: "Готовим отправку на роутер",
+      detail: "Подготавливаем операцию и блокируем повторные действия.",
+    };
+  }
+  if (!state.saveInFlight) {
+    state.saveProgress = null;
+  }
   renderDirtyNotice();
   renderSummary();
   renderProfilesTable();
@@ -670,6 +746,11 @@ function runProxyNamesSync() {
 
   const payload = buildRouterSyncPayload(getProfiles());
   setSaveInFlight(true);
+  setSaveProgress(
+    20,
+    "Синхронизация ProxyN: отправляем имена",
+    "Передаём названия профилей в Keenetic, чтобы описания ProxyN совпадали с UI."
+  );
   showBanner("warn", "Синхронизируем названия ProxyN с именами профилей UI...");
 
   return fetchJson("/cgi-bin/router-proxy-sync.cgi?action=names", {
@@ -680,6 +761,11 @@ function runProxyNamesSync() {
     body: payload,
   })
     .then((data) => {
+      setSaveProgress(
+        70,
+        "Синхронизация ProxyN: перечитываем состояние",
+        "Имена сохранены, теперь обновляем локальные данные и runtime ProxyN."
+      );
       state.profilesDoc = applyRouterSyncMappings(getProfiles(), data);
       const message =
         (data && data.message ? data.message : "Названия ProxyN синхронизированы.") +
@@ -4973,7 +5059,12 @@ function runPostSaveStormResetIfNeeded() {
 }
 
 function runPostSaveMaintenance(profiles, hasDnsRoutes) {
-  showBanner("warn", "Профили сохранены. Автоматически делаем VPN reset, DNS reset и проверяем SOCKS-шторм...");
+  showBanner("warn", "Профили сохранены. Выполняем финальные проверки на роутере...");
+  setSaveProgress(
+    82,
+    progressStep(8, 10, "перезапускаем VPN-слой"),
+    "Перезапускаем только реально используемые движки и обновляем VPN-маршруты."
+  );
 
   const summary = {
     vpn: null,
@@ -4984,10 +5075,22 @@ function runPostSaveMaintenance(profiles, hasDnsRoutes) {
   return runPostSaveVpnRefresh(profiles)
     .then((vpnResult) => {
       summary.vpn = vpnResult || null;
+      setSaveProgress(
+        90,
+        hasDnsRoutes ? progressStep(9, 10, "пересобираем live DNS") : progressStep(9, 10, "пропускаем DNS reset"),
+        hasDnsRoutes
+          ? "Пересобираем live DNS-маршруты и перезапускаем dns-proxy intercept."
+          : "DNS-маршруты не заданы, поэтому DNS reset не нужен."
+      );
       return runPostSaveDnsRefresh(hasDnsRoutes);
     })
     .then((dnsResult) => {
       summary.dns = dnsResult || null;
+      setSaveProgress(
+        96,
+        progressStep(10, 10, "проверяем SOCKS-шторм"),
+        "Считываем ProxyN runtime и сбрасываем зацикленные SOCKS-соединения, если они появились."
+      );
       return runPostSaveStormResetIfNeeded();
     })
     .then((stormResult) => {
@@ -5026,6 +5129,11 @@ function saveEverything() {
   let hasDnsRoutes = false;
   let dnsRouteSyncPayload = "";
   setSaveInFlight(true);
+  setSaveProgress(
+    2,
+    progressStep(1, 10, "готовим данные"),
+    "Проверяем локальные профили, назначения ProxyN и DNS-маршруты перед отправкой."
+  );
 
   return Promise.resolve().then(() => {
     state.profilesDoc = validateLocalPortAssignments(validateRouterProxyAssignments(state.profilesDoc));
@@ -5040,10 +5148,25 @@ function saveEverything() {
       preparedProfiles = mergeDnsRulesFromRoutes(preparedProfiles, getDnsRoutes());
       state.profilesDoc = preparedProfiles;
     }
+    setSaveProgress(
+      12,
+      progressStep(2, 10, "сохраняем sing-box"),
+      "Отправляем сгенерированный config sing-box на роутер или пропускаем шаг, если движок не используется."
+    );
     return saveEngineConfigIfNeeded("sing-box", built.singboxConfig);
   }).then(() => {
+    setSaveProgress(
+      24,
+      progressStep(3, 10, "сохраняем Xray"),
+      "Отправляем сгенерированный config Xray на роутер или пропускаем шаг, если движок не используется."
+    );
     return saveEngineConfigIfNeeded("xray", built.xrayConfig);
   }).then(() => {
+    setSaveProgress(
+      38,
+      progressStep(4, 10, "синхронизируем ProxyN"),
+      "Обновляем привязки, описания и состояние ProxyN в Keenetic."
+    );
     return fetchJson("/cgi-bin/router-proxy-sync.cgi", {
       method: "POST",
       headers: {
@@ -5055,21 +5178,43 @@ function saveEverything() {
     preparedProfiles = applyRouterSyncMappings(preparedProfiles.profiles, syncResult);
     state.profilesDoc = preparedProfiles;
     if (!hasDnsRoutes) {
+      setSaveProgress(
+        60,
+        progressStep(5, 10, "DNS-маршруты не меняются"),
+        "В UI нет DNS-маршрутов для отправки, переходим к сохранению списка профилей."
+      );
       return null;
     }
+    setSaveProgress(
+      52,
+      progressStep(5, 10, "применяем DNS-маршруты"),
+      "Отправляем назначение domain-list групп в ProxyN или прямой ISP-маршрут."
+    );
     return fetchJson("/cgi-bin/router-dns-routes-sync.cgi", {
       method: "POST",
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
       },
       body: dnsRouteSyncPayload,
-    }).then(() => verifySavedDnsRoutePayload(dnsRouteSyncPayload));
+    }).then(() => {
+      setSaveProgress(
+        64,
+        progressStep(6, 10, "проверяем DNS-маршруты"),
+        "Перечитываем DNS-маршруты с роутера и сверяем их с отправленным состоянием."
+      );
+      return verifySavedDnsRoutePayload(dnsRouteSyncPayload);
+    });
   }).then(() => {
     if (hasDnsRoutes) {
       preparedProfiles = mergeDnsRulesFromRoutes(preparedProfiles, state.dnsRoutes);
       state.profilesDoc = preparedProfiles;
     }
     const persistedProfiles = stripDnsRulesFromProfilesDoc(preparedProfiles);
+    setSaveProgress(
+      74,
+      progressStep(7, 10, "сохраняем список профилей"),
+      "Записываем profiles.json для UI без дублирования DNS-правил внутри профилей."
+    );
     return fetchJson("/cgi-bin/xray-profiles-save.cgi", {
       method: "POST",
       headers: {
@@ -5079,6 +5224,13 @@ function saveEverything() {
     });
   }).then(() => {
     return runPostSaveMaintenance(preparedProfiles.profiles, hasDnsRoutes);
+  }).then((summary) => {
+    setSaveProgress(
+      100,
+      "Готово: изменения применены",
+      "Все шаги завершены. Обновляем данные интерфейса с роутера."
+    );
+    return summary;
   }).catch((error) => {
     return init().catch(() => null).then(() => {
       throw error;

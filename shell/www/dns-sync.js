@@ -4,7 +4,9 @@
     loading: false,
     text: "",
     selectedGroupId: "",
+    progress: null,
   };
+  let progressClearTimer = 0;
 
   function $(id) {
     return document.getElementById(id);
@@ -30,6 +32,48 @@
     if (!banner) return;
     banner.className = "banner";
     banner.textContent = "";
+  }
+
+  function clampProgressPercent(value) {
+    const number = Math.round(Number(value));
+    if (!Number.isFinite(number) || number <= 0) return 0;
+    if (number >= 100) return 100;
+    return number;
+  }
+
+  function renderProgress() {
+    const progress = $("dnsProgress");
+    if (!progress) return;
+    const data = state.progress;
+    progress.hidden = !data;
+    if (!data) return;
+    const percent = clampProgressPercent(data.percent);
+    const stepNode = $("dnsProgressStep");
+    const percentNode = $("dnsProgressPercent");
+    const barNode = $("dnsProgressBar");
+    if (stepNode) stepNode.textContent = data.step || "Выполняем операцию на роутере";
+    if (percentNode) percentNode.textContent = percent + "%";
+    if (barNode) barNode.style.width = percent + "%";
+  }
+
+  function setProgress(percent, step) {
+    window.clearTimeout(progressClearTimer);
+    state.progress = {
+      percent: clampProgressPercent(percent),
+      step: step || "Выполняем операцию на роутере",
+    };
+    renderProgress();
+  }
+
+  function clearProgress() {
+    window.clearTimeout(progressClearTimer);
+    state.progress = null;
+    renderProgress();
+  }
+
+  function finishProgress() {
+    window.clearTimeout(progressClearTimer);
+    progressClearTimer = window.setTimeout(clearProgress, 1200);
   }
 
   function fetchJson(url, options) {
@@ -347,19 +391,26 @@
     const opts = options || {};
     const suffix = opts.allowShrink ? "&allowShrink=1" : "";
     setBusy(true);
+    setProgress(10, "Шаг 1 из 3: готовим DNS-группу");
     showBanner("warn", "Сохраняем на роутер только выбранную DNS-группу...");
     try {
+      setProgress(35, "Шаг 2 из 3: отправляем группу на роутер");
       const data = await fetchJson(API_URL + "?action=apply-group" + suffix, {
         method: "POST",
         headers: { "Content-Type": "text/plain; charset=utf-8" },
         body: serializeTransferText([group]),
       });
+      setProgress(100, "Шаг 3 из 3: группа сохранена");
       showBanner(
         "ok",
         `${data.message || "DNS-группа сохранена на роутер."} ${group.description || group.groupId}: применено ${hostCountText(
           data.includesApplied || group.includes.length
         )}.`
       );
+      finishProgress();
+    } catch (error) {
+      clearProgress();
+      throw error;
     } finally {
       setBusy(false);
     }
@@ -503,20 +554,26 @@
     }
 
     setBusy(true);
+    setProgress(10, "Шаг 1 из 4: проверяем DNS-файл");
     showBanner("warn", "Применяем DNS-файл на роутер...");
     try {
+      setProgress(30, "Шаг 2 из 4: отправляем DNS-файл на роутер");
       const data = await fetchJson(API_URL + "?action=apply", {
         method: "POST",
         headers: { "Content-Type": "text/plain; charset=utf-8" },
         body: state.text,
       });
+      setProgress(82, "Шаг 3 из 4: перечитываем DNS-файл с роутера");
       await loadFromRouter(
         `${data.message || "DNS-файл сохранён на роутер."} Обновлено групп: ${data.updatedGroups || 0}, удалено: ${
           data.removedGroups || 0
         }, применено ${hostCountText(data.includesApplied || 0)}.`
       );
+      setProgress(100, "Шаг 4 из 4: DNS-файл сохранён");
+      finishProgress();
     } catch (error) {
       showBanner("error", error.message);
+      clearProgress();
     } finally {
       setBusy(false);
     }

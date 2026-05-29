@@ -1817,6 +1817,7 @@ textarea {
 
 .change-notice-copy {
   min-width: 0;
+  flex: 1 1 auto;
 }
 
 .change-notice-title {
@@ -1837,6 +1838,62 @@ textarea {
   align-items: center;
   gap: 10px;
   flex: 0 0 auto;
+}
+
+.operation-progress {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.operation-progress[hidden] {
+  display: none !important;
+}
+
+.operation-progress-standalone {
+  margin: -4px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid rgba(123, 204, 255, 0.18);
+  border-radius: 14px;
+  background: rgba(24, 31, 43, 0.82);
+}
+
+.operation-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.operation-progress-step {
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.operation-progress-percent {
+  flex: 0 0 auto;
+  color: #cffff8;
+  font-size: 13px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.operation-progress-track {
+  overflow: hidden;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(126, 148, 178, 0.22);
+}
+
+.operation-progress-bar {
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(34, 166, 153, 0.96), rgba(123, 204, 255, 0.92));
+  transition: width 0.22s ease;
 }
 
 .banner.ok {
