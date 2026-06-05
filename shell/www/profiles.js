@@ -481,7 +481,8 @@ function updateBusyControls() {
       state.proxyRuntimeBusyId ||
       state.clientPolicyBusyMac
   );
-  const hasAssignedDnsRoutes = getCurrentDnsAssignments().size > 0;
+  const bulkDnsRuleIds = getBulkDnsRuleIds();
+  const hasBulkDnsRoutes = bulkDnsRuleIds.length > 0;
 
   if ($("reloadBtn")) {
     $("reloadBtn").disabled = busy;
@@ -511,26 +512,25 @@ function updateBusyControls() {
     $("pingSelectedBtn").disabled = busy;
   }
   if ($("dnsBulkProfileSelect")) {
-    const hasUnlockedAssignedDnsRoutes = getUnlockedAssignedDnsRuleIds().length > 0;
+    const hasUnlockedBulkDnsRoutes = getUnlockedBulkDnsRuleIds().length > 0;
     const shouldDisable =
       busy ||
       state.dnsRoutesLoading ||
       Boolean(state.dnsRoutesError) ||
-      !getProfiles().length ||
-      !hasAssignedDnsRoutes ||
-      !hasUnlockedAssignedDnsRoutes;
+      !hasBulkDnsRoutes ||
+      !hasUnlockedBulkDnsRoutes;
     $("dnsBulkProfileSelect").disabled = shouldDisable;
   }
   if ($("dnsBulkApplyBtn")) {
     const noBulkProfile = !String(($("dnsBulkProfileSelect") && $("dnsBulkProfileSelect").value) || "").trim();
-    const hasUnlockedAssignedDnsRoutes = getUnlockedAssignedDnsRuleIds().length > 0;
+    const hasUnlockedBulkDnsRoutes = getUnlockedBulkDnsRuleIds().length > 0;
     $("dnsBulkApplyBtn").disabled =
       busy ||
       state.dnsRoutesLoading ||
       Boolean(state.dnsRoutesError) ||
       noBulkProfile ||
-      !hasAssignedDnsRoutes ||
-      !hasUnlockedAssignedDnsRoutes;
+      !hasBulkDnsRoutes ||
+      !hasUnlockedBulkDnsRoutes;
   }
   if ($("dnsRoutesReloadBtn")) {
     $("dnsRoutesReloadBtn").disabled = busy || state.dnsRoutesLoading;
@@ -1764,8 +1764,7 @@ function setLocalDnsRouteTarget(groupId, target) {
     getDnsRoutes().map((route) =>
       route.groupId === normalizedGroupId
         ? {
-            groupId: route.groupId,
-            description: route.description,
+            ...route,
             proxyId: normalizedTarget,
           }
         : route
@@ -1910,6 +1909,18 @@ function getAssignedDnsRuleIds() {
 
 function getUnlockedAssignedDnsRuleIds() {
   return getAssignedDnsRuleIds().filter((groupId) => !isDnsRouteLocked(groupId));
+}
+
+function getBulkDnsRuleIds() {
+  const routes = getDnsRoutes();
+  if (!state.dnsRoutesLoading && !state.dnsRoutesError && routes.length) {
+    return normalizeDnsRuleList(routes.map((route) => route.groupId));
+  }
+  return getAssignedDnsRuleIds();
+}
+
+function getUnlockedBulkDnsRuleIds() {
+  return getBulkDnsRuleIds().filter((groupId) => !isDnsRouteLocked(groupId));
 }
 
 function getEffectiveDnsRulesForProfile(profile) {
@@ -2951,9 +2962,9 @@ function renderDnsBulkControls() {
   const profiles = getProfiles()
     .slice()
     .sort((left, right) => left.name.localeCompare(right.name, "ru"));
-  const assignedRuleIds = getAssignedDnsRuleIds();
-  const assignedCount = assignedRuleIds.length;
-  const unlockedAssignedCount = assignedRuleIds.filter((groupId) => !isDnsRouteLocked(groupId)).length;
+  const bulkRuleIds = getBulkDnsRuleIds();
+  const bulkCount = bulkRuleIds.length;
+  const unlockedBulkCount = bulkRuleIds.filter((groupId) => !isDnsRouteLocked(groupId)).length;
 
   select.innerHTML =
     '<option value="">Выбери профиль</option>' +
@@ -2972,9 +2983,8 @@ function renderDnsBulkControls() {
   const disabled =
     state.dnsRoutesLoading ||
     Boolean(state.dnsRoutesError) ||
-    !profiles.length ||
-    assignedCount === 0 ||
-    unlockedAssignedCount === 0;
+    bulkCount === 0 ||
+    unlockedBulkCount === 0;
 
   select.disabled = disabled;
   button.disabled = disabled || !String(select.value || "").trim();
@@ -2991,20 +3001,20 @@ function renderDnsBulkControls() {
     return;
   }
 
-  if (!assignedCount) {
-    select.title = "Сейчас ни один DNS-маршрут не назначен.";
-    button.title = "Сейчас ни один DNS-маршрут не назначен.";
+  if (!bulkCount) {
+    select.title = "Сейчас нет DNS-групп для массового назначения.";
+    button.title = "Сейчас нет DNS-групп для массового назначения.";
     return;
   }
 
-  if (!unlockedAssignedCount) {
-    select.title = "Все назначенные DNS-маршруты закреплены замком.";
-    button.title = "Все назначенные DNS-маршруты закреплены замком.";
+  if (!unlockedBulkCount) {
+    select.title = "Все DNS-группы закреплены замком.";
+    button.title = "Все DNS-группы закреплены замком.";
     return;
   }
 
-  select.title = "Выбери профиль или прямое подключение для массового переназначения уже выбранных DNS-маршрутов.";
-  button.title = "Переназначить незакреплённые DNS-маршруты на выбранный вариант.";
+  select.title = "Выбери профиль или прямое подключение для массового назначения всех незакреплённых DNS-групп.";
+  button.title = "Переназначить все DNS-группы без замка на выбранный вариант.";
 }
 
 function bulkAssignAssignedDnsRoutes(profileId) {
@@ -3019,17 +3029,17 @@ function bulkAssignAssignedDnsRoutes(profileId) {
     throw new Error("Выбранный профиль не найден.");
   }
 
-  const assignedRules = getAssignedDnsRuleIds();
-  const editableRules = assignedRules.filter((groupId) => !isDnsRouteLocked(groupId));
-  const skippedLockedCount = assignedRules.length - editableRules.length;
+  const bulkRules = getBulkDnsRuleIds();
+  const editableRules = bulkRules.filter((groupId) => !isDnsRouteLocked(groupId));
+  const skippedLockedCount = bulkRules.length - editableRules.length;
 
-  if (!assignedRules.length) {
-    showBanner("warn", "Сейчас нет ни одного назначенного DNS-маршрута для массовой замены.");
+  if (!bulkRules.length) {
+    showBanner("warn", "Сейчас нет ни одной DNS-группы для массового назначения.");
     return;
   }
 
   if (!editableRules.length) {
-    showBanner("warn", "Все назначенные DNS-маршруты закреплены замком, массовая замена ничего не меняет.");
+    showBanner("warn", "Все DNS-группы закреплены замком, массовая замена ничего не меняет.");
     return;
   }
 
@@ -3047,8 +3057,8 @@ function bulkAssignAssignedDnsRoutes(profileId) {
   showBanner(
     "ok",
     isDirect
-      ? "Незакреплённые DNS-маршруты (" + editableRules.length + ") локально переведены на прямое подключение" + lockedSuffix
-      : 'Незакреплённые DNS-маршруты (' +
+      ? "Незакреплённые DNS-группы (" + editableRules.length + ") локально переведены на прямое подключение" + lockedSuffix
+      : 'Незакреплённые DNS-группы (' +
           editableRules.length +
           ') локально переназначены на профиль "' +
           target.name +
