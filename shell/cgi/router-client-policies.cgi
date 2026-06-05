@@ -45,6 +45,91 @@ run_ndmc() {
   return $code
 }
 
+fetch_url() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS "$1"
+    return $?
+  fi
+  if command -v wget >/dev/null 2>&1; then
+    wget -qO- "$1"
+    return $?
+  fi
+  return 1
+}
+
+build_fallback_hosts() {
+  ip neigh show 2>/dev/null > "$NEIGH_FILE" || : > "$NEIGH_FILE"
+  awk '
+  function is_mac(value) {
+    return value ~ /^([0-9a-f][0-9a-f]:){5}[0-9a-f][0-9a-f]$/
+  }
+  function is_lan_dev(value) {
+    return value ~ /^(br[0-9]+|Bridge[0-9]+|Home|ra[0-9.]*|apcli[0-9.]*)$/
+  }
+  function print_host(mac, ip, active, first) {
+    if (!first) {
+      printf ","
+    }
+    printf "{\"mac\":\"%s\",\"ip\":\"%s\",\"hostname\":\"\",\"name\":\"\",\"active\":%s,\"link\":\"%s\",\"interface\":{\"description\":\"%s\"}}",
+      mac,
+      ip,
+      active ? "true" : "false",
+      active ? "up" : "",
+      "Keenetic fallback"
+  }
+  FILENAME == run_file {
+    if ($1 == "ip" && $2 == "hotspot") {
+      in_hotspot = 1
+      next
+    }
+    if (in_hotspot && $1 == "!") {
+      in_hotspot = 0
+      next
+    }
+    if (in_hotspot && $1 == "host") {
+      mac = tolower($2)
+      if (is_mac(mac)) {
+        seen[mac] = 1
+      }
+    }
+    next
+  }
+  FILENAME == neigh_file {
+    current_ip = $1
+    current_mac = ""
+    current_dev = ""
+    current_state = $NF
+    for (i = 1; i <= NF; i++) {
+      if ($i == "lladdr" && (i + 1) <= NF) {
+        current_mac = tolower($(i + 1))
+      }
+      if ($i == "dev" && (i + 1) <= NF) {
+        current_dev = $(i + 1)
+      }
+    }
+    if (current_ip ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/ && is_mac(current_mac) && is_lan_dev(current_dev)) {
+      seen[current_mac] = 1
+      if (ip[current_mac] == "") {
+        ip[current_mac] = current_ip
+      }
+      if (current_state != "FAILED" && current_state != "INCOMPLETE") {
+        active[current_mac] = 1
+      }
+    }
+    next
+  }
+  END {
+    first = 1
+    printf "["
+    for (mac in seen) {
+      print_host(mac, ip[mac], active[mac], first)
+      first = 0
+    }
+    printf "]"
+  }
+  ' -v run_file="$RUNCFG_FILE" -v neigh_file="$NEIGH_FILE" "$RUNCFG_FILE" "$NEIGH_FILE" > "$HOSTS_FILE"
+}
+
 acquire_lock() {
   if mkdir "$LOCK_DIR" 2>/dev/null; then
     LOCK_HELD=1
@@ -59,6 +144,7 @@ cleanup() {
     "$TMP_INPUT" \
     "$RUNCFG_FILE" \
     "$HOSTS_FILE" \
+    "$NEIGH_FILE" \
     "$POLICIES_FILE" \
     "$ASSIGNMENTS_FILE" \
     /tmp/router-client-policies-show.$$ \
@@ -83,9 +169,11 @@ emit_state() {
   fi
   rm -f /tmp/router-client-policies-show.$$
 
-  curl -s http://127.0.0.1:79/rci/show/ip/hotspot/host > "$HOSTS_FILE" 2>/dev/null
-  if [ ! -s "$HOSTS_FILE" ]; then
-    printf '[]' > "$HOSTS_FILE"
+  if ! fetch_url "http://127.0.0.1:79/rci/show/ip/hotspot/host" > "$HOSTS_FILE" 2>/dev/null; then
+    : > "$HOSTS_FILE"
+  fi
+  if [ ! -s "$HOSTS_FILE" ] || ! grep -q '^[[:space:]]*\[' "$HOSTS_FILE"; then
+    build_fallback_hosts
   fi
 
   awk '
@@ -228,6 +316,7 @@ LOCK_DIR="$PROFILE_DIR/client-policies.lock"
 TMP_INPUT="/opt/tmp/router-client-policies-$$.txt"
 RUNCFG_FILE="/opt/tmp/router-client-policies-running-$$.txt"
 HOSTS_FILE="/opt/tmp/router-client-policies-hosts-$$.json"
+NEIGH_FILE="/opt/tmp/router-client-policies-neigh-$$.txt"
 POLICIES_FILE="/opt/tmp/router-client-policies-policies-$$.txt"
 ASSIGNMENTS_FILE="/opt/tmp/router-client-policies-assignments-$$.txt"
 

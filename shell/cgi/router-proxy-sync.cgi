@@ -182,6 +182,12 @@ fail() {
   exit 0
 }
 
+fail_missing_proxy_component() {
+  fail \
+    "На роутере не установлен компонент KeeneticOS Proxy client" \
+    "Установи системный компонент Proxy client в настройках компонентов KeeneticOS, затем повтори сохранение. Без него Keenetic не принимает интерфейсы ProxyN."
+}
+
 sync_names_only() {
   cp "$OLD_MAP_FILE" "$NEW_MAP_FILE"
   : > "$MAPPINGS_FILE"
@@ -464,6 +470,11 @@ while IFS='|' read -r record_type profile_id name_b64 enabled local_port proxy_h
 
   if ! proxy_exists "$candidate"; then
     if ! run_ndmc "interface $candidate"; then
+      case "$CMD_OUTPUT" in
+        *"unsupported interface type"*Proxy*|*"unsupported interface type: \"Proxy\""*)
+          fail_missing_proxy_component
+          ;;
+      esac
       fail "Не удалось создать интерфейс $candidate" "$CMD_OUTPUT"
     fi
   fi
