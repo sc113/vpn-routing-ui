@@ -14,15 +14,16 @@ num_or_zero() {
 }
 
 cleanup() {
-  rm -f "$TOP_FILE" "$MEM_FILE" "$CACHE_TMP_FILE" 2>/dev/null
+  rm -f "$TOP_FILE" "$TOP_LAST_FILE" "$MEM_FILE" "$CACHE_TMP_FILE" 2>/dev/null
 }
 
 echo "Content-Type: application/json"
 echo "Cache-Control: no-store"
 echo ""
 
-PATH=/opt/sbin:/opt/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 TOP_FILE="/opt/tmp/router-system-health-top-$$.txt"
+TOP_LAST_FILE="/opt/tmp/router-system-health-top-last-$$.txt"
 MEM_FILE="/opt/tmp/router-system-health-mem-$$.txt"
 CACHE_FILE="/opt/tmp/router-system-health-cache.json"
 CACHE_TMP_FILE="/opt/tmp/router-system-health-cache-$$.json"
@@ -38,7 +39,36 @@ if [ -s "$CACHE_FILE" ] && [ "$cache_age" -ge 0 ] 2>/dev/null && [ "$cache_age" 
   exit 0
 fi
 
-top -bn1 > "$TOP_FILE" 2>/dev/null || true
+read_cpu_stat() {
+  awk '
+  $1 == "cpu" {
+    for (i = 2; i <= 11; i++) {
+      printf "%s%s", ($i + 0), (i == 11 ? "\n" : " ")
+    }
+    exit
+  }
+  ' /proc/stat 2>/dev/null
+}
+
+CPU_STAT_BEFORE=$(read_cpu_stat)
+if ! top -bn2 -d 1 > "$TOP_FILE" 2>/dev/null; then
+  sleep 1
+  top -bn1 > "$TOP_FILE" 2>/dev/null || true
+fi
+CPU_STAT_AFTER=$(read_cpu_stat)
+
+awk '
+/^Mem:/ {
+  block = ""
+}
+{
+  block = block $0 "\n"
+}
+END {
+  printf "%s", block
+}
+' "$TOP_FILE" > "$TOP_LAST_FILE"
+
 grep -E 'MemTotal|MemAvailable' /proc/meminfo > "$MEM_FILE" 2>/dev/null || true
 
 load_one=$(awk '{ print $1 }' /proc/loadavg 2>/dev/null)
@@ -51,57 +81,91 @@ load_one_percent=$(awk -v load="${load_one:-0}" -v cores="${cpu_cores:-1}" 'BEGI
 load_five_percent=$(awk -v load="${load_five:-0}" -v cores="${cpu_cores:-1}" 'BEGIN { if (cores > 0) printf "%.1f", (load * 100) / cores; else printf "0" }')
 load_fifteen_percent=$(awk -v load="${load_fifteen:-0}" -v cores="${cpu_cores:-1}" 'BEGIN { if (cores > 0) printf "%.1f", (load * 100) / cores; else printf "0" }')
 
-cpu_line=$(grep '^CPU:' "$TOP_FILE" 2>/dev/null | head -n 1)
-cpu_user=$(printf '%s\n' "$cpu_line" | awk '
-  {
-    for (i = 1; i <= NF; i++) {
-      token = $i
-      label = $(i + 1)
-      gsub(/%/, "", token)
-      if (label == "usr") { print token; exit }
+cpu_metrics=$(awk -v before="$CPU_STAT_BEFORE" -v after="$CPU_STAT_AFTER" '
+BEGIN {
+  split(before, a, " ")
+  split(after, b, " ")
+  total = 0
+  for (i = 1; i <= 10; i++) {
+    delta[i] = b[i] - a[i]
+    if (delta[i] < 0) {
+      delta[i] = 0
     }
+    total += delta[i]
   }
-')
-cpu_system=$(printf '%s\n' "$cpu_line" | awk '
-  {
-    for (i = 1; i <= NF; i++) {
-      token = $i
-      label = $(i + 1)
-      gsub(/%/, "", token)
-      if (label == "sys") { print token; exit }
-    }
+  if (total <= 0) {
+    printf "0 0 100 0"
+    exit
   }
+  user = delta[1] + delta[2]
+  system = delta[3]
+  idle = delta[4] + delta[5]
+  softirq = delta[6] + delta[7]
+  printf "%.1f %.1f %.1f %.1f", (user * 100) / total, (system * 100) / total, (idle * 100) / total, (softirq * 100) / total
+}
 ')
-cpu_idle=$(printf '%s\n' "$cpu_line" | awk '
-  {
-    for (i = 1; i <= NF; i++) {
-      token = $i
-      label = $(i + 1)
-      gsub(/%/, "", token)
-      if (label == "idle") { print token; exit }
-    }
-  }
-')
-cpu_softirq=$(printf '%s\n' "$cpu_line" | awk '
-  {
-    for (i = 1; i <= NF; i++) {
-      token = $i
-      label = $(i + 1)
-      gsub(/%/, "", token)
-      if (label == "sirq") { print token; exit }
-    }
-  }
-')
+set -- $cpu_metrics
+cpu_user="${1:-0}"
+cpu_system="${2:-0}"
+cpu_idle="${3:-100}"
+cpu_softirq="${4:-0}"
 
 mem_total_kb=$(awk '/MemTotal:/ { print $2; exit }' "$MEM_FILE" 2>/dev/null)
 mem_available_kb=$(awk '/MemAvailable:/ { print $2; exit }' "$MEM_FILE" 2>/dev/null)
 mem_used_kb=$(awk -v total="${mem_total_kb:-0}" -v available="${mem_available_kb:-0}" 'BEGIN { print total - available }')
 mem_used_percent=$(awk -v total="${mem_total_kb:-0}" -v used="${mem_used_kb:-0}" 'BEGIN { if (total > 0) printf "%.1f", (used * 100) / total; else printf "0" }')
 
-ndm_cpu=$(awk '$0 ~ /(^|[[:space:]])ndm$/ { print $8; exit }' "$TOP_FILE" 2>/dev/null)
-singbox_cpu=$(awk '$0 ~ /sing-box/ { print $8; exit }' "$TOP_FILE" 2>/dev/null)
-xray_cpu=$(awk '$0 ~ /(^|[[:space:]])xray([[:space:]]|$)/ { print $8; exit }' "$TOP_FILE" 2>/dev/null)
-proxy_cpu=$(awk '$0 ~ /hev-socks5-tunnel/ { sum += $8 } END { printf "%.1f", sum + 0 }' "$TOP_FILE" 2>/dev/null)
+ndm_cpu=$(awk '
+$1 == "PID" {
+  cpu_col = 0
+  for (i = 1; i <= NF; i++) {
+    if ($i == "%CPU") {
+      cpu_col = i
+    }
+  }
+  next
+}
+cpu_col > 0 && $0 ~ /(^|[[:space:]])ndm$/ { print $cpu_col + 0; exit }
+' "$TOP_LAST_FILE" 2>/dev/null)
+singbox_cpu=$(awk '
+$1 == "PID" {
+  cpu_col = 0
+  for (i = 1; i <= NF; i++) {
+    if ($i == "%CPU") {
+      cpu_col = i
+    }
+  }
+  next
+}
+cpu_col > 0 && $0 ~ /sing-box/ { sum += $cpu_col }
+END { printf "%.1f", sum + 0 }
+' "$TOP_LAST_FILE" 2>/dev/null)
+xray_cpu=$(awk '
+$1 == "PID" {
+  cpu_col = 0
+  for (i = 1; i <= NF; i++) {
+    if ($i == "%CPU") {
+      cpu_col = i
+    }
+  }
+  next
+}
+cpu_col > 0 && $0 ~ /(^|[[:space:]])xray([[:space:]]|$)/ { sum += $cpu_col }
+END { printf "%.1f", sum + 0 }
+' "$TOP_LAST_FILE" 2>/dev/null)
+proxy_cpu=$(awk '
+$1 == "PID" {
+  cpu_col = 0
+  for (i = 1; i <= NF; i++) {
+    if ($i == "%CPU") {
+      cpu_col = i
+    }
+  }
+  next
+}
+cpu_col > 0 && $0 ~ /hev-socks5-tunnel/ { sum += $cpu_col }
+END { printf "%.1f", sum + 0 }
+' "$TOP_LAST_FILE" 2>/dev/null)
 
 {
   printf '{'

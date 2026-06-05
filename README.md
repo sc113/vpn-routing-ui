@@ -52,7 +52,7 @@ http://192.168.1.1:92/
 
 ```sh
 opkg update
-opkg install ca-bundle wget-ssl uhttpd
+opkg install ca-bundle wget-ssl
 wget -qO- https://raw.githubusercontent.com/sc113/vpn-routing-ui/main/install.sh | sh
 ```
 
@@ -66,18 +66,18 @@ curl -fsSL https://raw.githubusercontent.com/sc113/vpn-routing-ui/main/install.s
 
 - Keenetic OS с компонентами `SSH`, `Proxy`, `OPKG`.
 - Entware в `/opt`.
-- `uhttpd` в `/opt/sbin/uhttpd`.
+- лёгкий web-server в `/opt`: предпочтительно `uhttpd`; если его нет в Entware-репозитории, installer использует fallback `lighttpd + mod_cgi + mod_setenv`.
 - Для работы VPN-профилей:
   - `xray`
   - и/или `sing-box-go`
 
-Installer попробует поставить отсутствующий `uhttpd` через `opkg`. VPN-движки можно поставить позже из самого интерфейса.
+Installer попробует поставить отсутствующий web-server через `opkg`. VPN-движки можно поставить позже из самого интерфейса.
 
 ## Лёгкий По Дизайну
 
 Проект рассчитан на домашний Keenetic без лишней нагрузки:
 
-- статические HTML/CSS/JS страницы через `uhttpd`;
+- статические HTML/CSS/JS страницы через `uhttpd` или лёгкий `lighttpd` fallback;
 - POSIX `sh` CGI вместо Go/Node/Python-сервиса;
 - без Docker, systemd, базы данных, миграций и тяжёлого dashboard;
 - без фонового polling за пределами открытого UI;

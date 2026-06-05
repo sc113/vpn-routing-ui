@@ -50,22 +50,31 @@ download_to_file() {
   fail "нужен curl или wget. Установи, например: opkg update && opkg install wget-ssl ca-bundle"
 }
 
-ensure_uhttpd() {
+ensure_web_server() {
   if [ -x /opt/sbin/uhttpd ]; then
     return
   fi
 
   if [ "${VPN_ROUTING_UI_INSTALL_DEPS:-1}" = "0" ]; then
-    fail "uhttpd не найден в /opt/sbin/uhttpd. Установи: opkg update && opkg install uhttpd"
+    fail "web-server не найден. Установи uhttpd или lighttpd+CGI в /opt"
   fi
 
   if command -v opkg >/dev/null 2>&1; then
     log "uhttpd не найден, пробуем поставить через opkg ..."
     opkg update
-    opkg install uhttpd
+    opkg install uhttpd || true
   fi
 
-  [ -x /opt/sbin/uhttpd ] || fail "uhttpd не найден. Установи: opkg update && opkg install uhttpd"
+  if [ -x /opt/sbin/uhttpd ]; then
+    return
+  fi
+
+  if command -v opkg >/dev/null 2>&1; then
+    log "uhttpd недоступен в opkg, ставим лёгкий lighttpd fallback ..."
+    opkg install lighttpd lighttpd-mod-cgi lighttpd-mod-setenv
+  fi
+
+  [ -x /opt/sbin/lighttpd ] || fail "web-server не найден. Установи uhttpd или lighttpd+CGI в /opt"
 }
 
 script_dir() {
@@ -156,7 +165,7 @@ fi
 log "[1/7] Проверяем Entware ..."
 [ -d /opt ] || fail "Entware не найдено: каталог /opt отсутствует"
 detect_source
-ensure_uhttpd
+ensure_web_server
 
 log "[2/7] Останавливаем web-init ..."
 "$TARGET_INIT"/S68vpn-routing-ui stop >/dev/null 2>&1 || true

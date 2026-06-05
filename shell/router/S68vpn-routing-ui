@@ -1,7 +1,7 @@
 #!/bin/sh
 
 ENABLED=yes
-PROCS=uhttpd
+DESC="vpn-routing-ui"
 APP_DIR="/opt/share/vpn-routing-ui"
 if [ ! -d "$APP_DIR" ]; then
   for candidate in /opt/share/*; do
@@ -11,9 +11,137 @@ if [ ! -d "$APP_DIR" ]; then
     fi
   done
 fi
-ARGS="-p 0.0.0.0:92 -h $APP_DIR -I index.html -x /cgi-bin -t 90 -T 30 -D"
-PREARGS=""
-DESC="vpn-routing-ui"
+STATE_DIR="/opt/etc/vpn-routing-ui"
+LIGHTTPD_CONF="$STATE_DIR/lighttpd.conf"
+LIGHTTPD_PID="/opt/var/run/vpn-routing-ui-lighttpd.pid"
 PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-. /opt/etc/init.d/rc.func
+write_lighttpd_conf() {
+  mkdir -p "$STATE_DIR" /opt/var/run /opt/var/log /opt/tmp
+  cat > "$LIGHTTPD_CONF" <<EOF
+server.modules = ( "mod_setenv", "mod_cgi" )
+server.document-root = "$APP_DIR"
+server.bind = "0.0.0.0"
+server.port = 92
+server.pid-file = "$LIGHTTPD_PID"
+server.errorlog = "/opt/var/log/vpn-routing-ui-lighttpd.error.log"
+server.upload-dirs = ( "/opt/tmp" )
+index-file.names = ( "index.html" )
+setenv.add-environment = (
+  "PATH" => "$PATH"
+)
+cgi.assign = ( ".cgi" => "" )
+mimetype.assign = (
+  ".html" => "text/html",
+  ".css" => "text/css",
+  ".js" => "application/javascript",
+  ".json" => "application/json",
+  ".png" => "image/png",
+  ".svg" => "image/svg+xml",
+  "" => "application/octet-stream"
+)
+EOF
+}
+
+lighttpd_running() {
+  pid=$(cat "$LIGHTTPD_PID" 2>/dev/null | tr -cd '0-9')
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+start_uhttpd() {
+  if pidof uhttpd >/dev/null 2>&1; then
+    echo "Starting $DESC... already running."
+    return 0
+  fi
+  echo -n "Starting $DESC (uhttpd)... "
+  /opt/sbin/uhttpd -p 0.0.0.0:92 -h "$APP_DIR" -I index.html -x /cgi-bin -t 90 -T 30 -D >/dev/null 2>&1 &
+  count=0
+  while ! pidof uhttpd >/dev/null 2>&1 && [ "$count" -lt 10 ]; do
+    sleep 1
+    count=$((count + 1))
+  done
+  if pidof uhttpd >/dev/null 2>&1; then
+    echo "done."
+    return 0
+  fi
+  echo "failed."
+  return 255
+}
+
+start_lighttpd() {
+  if lighttpd_running; then
+    echo "Starting $DESC... already running."
+    return 0
+  fi
+  write_lighttpd_conf
+  /opt/sbin/lighttpd -tt -f "$LIGHTTPD_CONF" >/dev/null 2>&1 || {
+    echo "Starting $DESC (lighttpd)... failed."
+    tail -20 /opt/var/log/vpn-routing-ui-lighttpd.error.log 2>/dev/null || true
+    return 255
+  }
+  rm -f "$LIGHTTPD_PID"
+  echo -n "Starting $DESC (lighttpd)... "
+  /opt/sbin/lighttpd -f "$LIGHTTPD_CONF" -D >/dev/null 2>&1 &
+  echo "$!" > "$LIGHTTPD_PID"
+  sleep 1
+  if lighttpd_running; then
+    echo "done."
+    return 0
+  fi
+  echo "failed."
+  tail -20 /opt/var/log/vpn-routing-ui-lighttpd.error.log 2>/dev/null || true
+  return 255
+}
+
+start() {
+  [ "$ENABLED" = "yes" ] || return 8
+  if [ -x /opt/sbin/uhttpd ]; then
+    start_uhttpd
+    return $?
+  fi
+  if [ -x /opt/sbin/lighttpd ]; then
+    start_lighttpd
+    return $?
+  fi
+  echo "Starting $DESC... failed. Install uhttpd or lighttpd."
+  return 255
+}
+
+stop_lighttpd() {
+  if lighttpd_running; then
+    pid=$(cat "$LIGHTTPD_PID" 2>/dev/null | tr -cd '0-9')
+    kill "$pid" 2>/dev/null || true
+    count=0
+    while kill -0 "$pid" 2>/dev/null && [ "$count" -lt 10 ]; do
+      sleep 1
+      count=$((count + 1))
+    done
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+  rm -f "$LIGHTTPD_PID"
+}
+
+stop() {
+  echo -n "Stopping $DESC... "
+  killall uhttpd 2>/dev/null || true
+  stop_lighttpd
+  echo "done."
+}
+
+status() {
+  if pidof uhttpd >/dev/null 2>&1 || lighttpd_running; then
+    echo "$DESC alive."
+    return 0
+  fi
+  echo "$DESC dead."
+  return 1
+}
+
+case "${1:-}" in
+  start) start ;;
+  stop) stop ;;
+  restart) stop; start ;;
+  check|status) status ;;
+  kill) killall -9 uhttpd 2>/dev/null || true; stop_lighttpd ;;
+  *) echo "Usage: $0 (start|stop|restart|check|status|kill)"; exit 1 ;;
+esac

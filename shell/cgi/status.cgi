@@ -1,5 +1,7 @@
 #!/bin/sh
 
+PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
 json_escape() {
   printf '%s' "$1" | sed ':a;N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\r/\\r/g;s/\n/\\n/g'
 }
@@ -59,7 +61,7 @@ fi
 
 CONFIG_PATH="/opt/etc/xray/config.json"
 if [ -f "$XRAY_INIT" ]; then
-  ARGS_LINE=$(grep '^ARGS=' "$XRAY_INIT" | head -n 1 | cut -d'"' -f2)
+  ARGS_LINE=$(grep '^ARGS=' "$XRAY_INIT" | head -n 1 | cut -d'"' -f2 | sed 's|\$PROCS|xray|g')
   case " $ARGS_LINE " in
     *" -config "*)
       CONFIG_PATH=$(printf '%s\n' "$ARGS_LINE" | sed 's/.* -config \([^ ]*\).*/\1/')
@@ -72,7 +74,7 @@ fi
 
 SINGBOX_CONFIG_PATH="/opt/etc/sing-box/config.json"
 if [ -f "$SINGBOX_INIT" ]; then
-  SINGBOX_ARGS=$(grep '^ARGS=' "$SINGBOX_INIT" | head -n 1 | cut -d'"' -f2)
+  SINGBOX_ARGS=$(grep '^ARGS=' "$SINGBOX_INIT" | head -n 1 | cut -d'"' -f2 | sed 's|\$PROCS|sing-box|g')
   case " $SINGBOX_ARGS " in
     *" -c "*)
       SINGBOX_CONFIG_PATH=$(printf '%s\n' "$SINGBOX_ARGS" | sed 's/.* -c \([^ ]*\).*/\1/')
@@ -85,6 +87,18 @@ if [ -f "$SINGBOX_INIT" ]; then
       ;;
   esac
 fi
+
+WEB_SERVER="unknown"
+if pidof uhttpd >/dev/null 2>&1; then
+  WEB_SERVER="uhttpd"
+elif [ -s /opt/var/run/vpn-routing-ui-lighttpd.pid ] && kill -0 "$(cat /opt/var/run/vpn-routing-ui-lighttpd.pid 2>/dev/null | tr -cd '0-9')" 2>/dev/null; then
+  WEB_SERVER="lighttpd"
+elif [ -x /opt/sbin/lighttpd ]; then
+  WEB_SERVER="lighttpd"
+elif [ -x /opt/sbin/uhttpd ]; then
+  WEB_SERVER="uhttpd"
+fi
+
 printf '{'
 printf '"xrayInstalled":%s,' "$(bool_json "$XRAY_INSTALLED")"
 printf '"xrayRunning":%s,' "$(bool_json "$XRAY_RUNNING")"
@@ -95,5 +109,5 @@ printf '"xrayVersion":"%s",' "$(json_escape "$XRAY_VERSION")"
 printf '"singboxVersion":"%s",' "$(json_escape "$SINGBOX_VERSION")"
 printf '"xrayConfigPath":"%s",' "$(json_escape "$CONFIG_PATH")"
 printf '"singboxConfigPath":"%s",' "$(json_escape "$SINGBOX_CONFIG_PATH")"
-printf '"webServer":"uhttpd_kn"'
+printf '"webServer":"%s"' "$(json_escape "$WEB_SERVER")"
 printf '}'
