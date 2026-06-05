@@ -31,14 +31,17 @@
     const cores = Math.max(1, toNumber(load.cores) || 1);
     const loadOnePercent =
       load.onePercent == null ? (toNumber(load.one) * 100) / cores : toNumber(load.onePercent);
+    const cpuBusy = cpu.busy == null ? 100 - toNumber(cpu.idle) : toNumber(cpu.busy);
+    const processesMeasured = processes.measured !== false;
     return {
-      cpuBusy: clampPercent(100 - toNumber(cpu.idle)),
+      cpuBusy: clampPercent(cpuBusy),
       loadOne: toNumber(load.one),
       loadOnePercent: clampPercent(loadOnePercent),
       memoryUsed: toNumber(memory.usedPercent),
       ndmCpu: toNumber(processes.ndmCpu),
       vpnCpu: toNumber(processes.singboxCpu) + toNumber(processes.xrayCpu),
       proxyCpu: toNumber(processes.proxyCpu),
+      processesMeasured,
       sampledAt: String(source.sampledAt || "").trim(),
     };
   }
@@ -90,13 +93,17 @@
     }
 
     const health = state.health;
-    body.innerHTML =
+    let html =
       row("🧠", "CPU", formatPercent(health.cpuBusy), "Занятый CPU роутера. Чем меньше, тем спокойнее.", loadLevel(health.cpuBusy)) +
       row("📈", "Load 1м", formatPercent(health.loadOnePercent, 1), "Load average за 1 минуту в процентах от числа CPU-ядер.", loadLevel(health.loadOnePercent)) +
-      row("💾", "RAM", formatPercent(health.memoryUsed, 1), "Занятая оперативная память.", loadLevel(health.memoryUsed)) +
-      row("⚙️", "NDM", formatPercent(health.ndmCpu, 1), "CPU процесса ndm/KeeneticOS.", loadLevel(health.ndmCpu)) +
-      row("🚇", "VPN", formatPercent(health.vpnCpu, 1), "Суммарный CPU xray и sing-box.", loadLevel(health.vpnCpu)) +
-      row("🔀", "ProxyN", formatPercent(health.proxyCpu, 1), "CPU процессов ProxyN.", loadLevel(health.proxyCpu));
+      row("💾", "RAM", formatPercent(health.memoryUsed, 1), "Занятая оперативная память.", loadLevel(health.memoryUsed));
+    if (health.processesMeasured) {
+      html +=
+        row("⚙️", "NDM", formatPercent(health.ndmCpu, 1), "CPU процесса ndm/KeeneticOS.", loadLevel(health.ndmCpu)) +
+        row("🚇", "VPN", formatPercent(health.vpnCpu, 1), "Суммарный CPU xray и sing-box.", loadLevel(health.vpnCpu)) +
+        row("🔀", "ProxyN", formatPercent(health.proxyCpu, 1), "CPU процессов ProxyN.", loadLevel(health.proxyCpu));
+    }
+    body.innerHTML = html;
   }
 
   async function load(widget, state) {

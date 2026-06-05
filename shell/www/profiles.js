@@ -154,6 +154,8 @@ function normalizeSystemHealth(payload) {
       system: toNumber(cpu.system),
       idle: toNumber(cpu.idle),
       softirq: toNumber(cpu.softirq),
+      busy: cpu.busy == null ? 100 - toNumber(cpu.idle) : toNumber(cpu.busy),
+      source: String(cpu.source || "").trim(),
     },
     load: {
       one: toNumber(load.one),
@@ -172,6 +174,7 @@ function normalizeSystemHealth(payload) {
       singboxCpu: toNumber(processes.singboxCpu),
       xrayCpu: toNumber(processes.xrayCpu),
       proxyCpu: toNumber(processes.proxyCpu),
+      measured: processes.measured !== false,
     },
   };
 }
@@ -3496,9 +3499,10 @@ function renderProxyRuntimeTable() {
   const busyLoopback = runtimeList.filter((proxy) => proxy.loopbackConnections >= 200);
   const systemBusy = Boolean(
     state.systemHealth &&
-      (state.systemHealth.cpu.idle <= 10 ||
-        state.systemHealth.processes.ndmCpu >= 35 ||
-        state.systemHealth.processes.singboxCpu >= 60)
+      (state.systemHealth.cpu.busy >= 90 ||
+        (state.systemHealth.processes.measured &&
+          (state.systemHealth.processes.ndmCpu >= 35 ||
+            state.systemHealth.processes.singboxCpu >= 60)))
   );
 
   if (note) {
@@ -3510,12 +3514,8 @@ function renderProxyRuntimeTable() {
     } else if (systemBusy) {
       note.className = "runtime-health-note is-bad";
       note.textContent =
-        "Роутер сейчас перегружен: CPU idle " +
-        formatPercent(state.systemHealth.cpu.idle) +
-        ", ndm " +
-        formatPercent(state.systemHealth.processes.ndmCpu, 1) +
-        ", sing-box " +
-        formatPercent(state.systemHealth.processes.singboxCpu, 1) +
+        "Роутер сейчас перегружен: CPU занят " +
+        formatPercent(state.systemHealth.cpu.busy) +
         ". В такие минуты compact и длинные запросы могут рваться даже при живых ProxyN.";
       note.hidden = false;
     } else if (state.routerRuntimeLoading) {

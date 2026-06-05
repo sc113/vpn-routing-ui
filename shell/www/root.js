@@ -68,6 +68,8 @@
         system: toNumber(cpu.system),
         idle: toNumber(cpu.idle),
         softirq: toNumber(cpu.softirq),
+        busy: cpu.busy == null ? 100 - toNumber(cpu.idle) : toNumber(cpu.busy),
+        source: String(cpu.source || "").trim(),
       },
       load: {
         one: toNumber(load.one),
@@ -87,6 +89,7 @@
         singboxCpu: toNumber(processes.singboxCpu),
         xrayCpu: toNumber(processes.xrayCpu),
         proxyCpu: toNumber(processes.proxyCpu),
+        measured: processes.measured !== false,
       },
     };
   }
@@ -184,7 +187,18 @@
       `;
     }
     const health = state.systemHealth;
-    const cpuBusy = Math.max(0, Math.min(100, 100 - toNumber(health.cpu.idle)));
+    const cpuBusy = Math.max(0, Math.min(100, toNumber(health.cpu.busy)));
+    const processChips = health.processes.measured
+      ? `
+      <div class="engine-inline-chip ${healthChipClass("process", health.processes.ndmCpu)}" title="${escapeHtml(healthMetricTitle("ndm", health))}">
+        <span class="label">KeeneticOS</span>
+        <span class="value">${escapeHtml(formatPercent(health.processes.ndmCpu, 1))}</span>
+      </div>
+      <div class="engine-inline-chip ${healthChipClass("process", health.processes.singboxCpu)}" title="${escapeHtml(healthMetricTitle("singbox", health))}">
+        <span class="label">VPN-ядро</span>
+        <span class="value">${escapeHtml(formatPercent(health.processes.singboxCpu, 1))}</span>
+      </div>`
+      : "";
     return `
       <div class="engine-inline-chip ${healthChipClass("process", cpuBusy)}" title="${escapeHtml("Занятый CPU роутера. Чем меньше, тем спокойнее.")}">
         <span class="label">CPU занято</span>
@@ -194,14 +208,7 @@
         <span class="label">Load 1м</span>
         <span class="value">${escapeHtml(formatPercent(health.load.onePercent, 1))}</span>
       </div>
-      <div class="engine-inline-chip ${healthChipClass("process", health.processes.ndmCpu)}" title="${escapeHtml(healthMetricTitle("ndm", health))}">
-        <span class="label">KeeneticOS</span>
-        <span class="value">${escapeHtml(formatPercent(health.processes.ndmCpu, 1))}</span>
-      </div>
-      <div class="engine-inline-chip ${healthChipClass("process", health.processes.singboxCpu)}" title="${escapeHtml(healthMetricTitle("singbox", health))}">
-        <span class="label">VPN-ядро</span>
-        <span class="value">${escapeHtml(formatPercent(health.processes.singboxCpu, 1))}</span>
-      </div>
+      ${processChips}
       <div class="engine-inline-chip ${healthChipClass("mem", health.memory.usedPercent)}" title="${escapeHtml(healthMetricTitle("mem", health))}">
         <span class="label">Память</span>
         <span class="value">${escapeHtml(formatPercent(health.memory.usedPercent, 1))}</span>
