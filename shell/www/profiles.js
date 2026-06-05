@@ -5165,12 +5165,16 @@ function runPostSaveStormResetIfNeeded() {
     });
 }
 
-function runPostSaveMaintenance(profiles, hasDnsRoutes) {
+function runPostSaveMaintenance(profiles, hasDnsRoutes, options) {
+  const opts = options || {};
+  const skipVpnRefresh = Boolean(opts.skipVpnRefresh);
   showBanner("warn", "Профили сохранены. Выполняем финальные проверки на роутере...");
   setSaveProgress(
     82,
-    progressStep(8, 10, "перезапускаем VPN-слой"),
-    "Перезапускаем только реально используемые движки и обновляем VPN-маршруты."
+    skipVpnRefresh ? progressStep(8, 10, "VPN-порты уже подняты") : progressStep(8, 10, "перезапускаем VPN-слой"),
+    skipVpnRefresh
+      ? "VPN-движки уже перезапущены перед синхронизацией ProxyN, переходим к DNS reset."
+      : "Перезапускаем только реально используемые движки и обновляем VPN-маршруты."
   );
 
   const summary = {
@@ -5179,7 +5183,14 @@ function runPostSaveMaintenance(profiles, hasDnsRoutes) {
     storm: null,
   };
 
-  return runPostSaveVpnRefresh(profiles)
+  return (skipVpnRefresh
+    ? Promise.resolve({
+        ok: true,
+        skipped: true,
+        message: "VPN-движки уже перезапущены перед синхронизацией ProxyN.",
+      })
+    : runPostSaveVpnRefresh(profiles)
+  )
     .then((vpnResult) => {
       summary.vpn = vpnResult || null;
       setSaveProgress(
@@ -5235,6 +5246,7 @@ function saveEverything() {
   let routerSyncPayload = "";
   let hasDnsRoutes = false;
   let dnsRouteSyncPayload = "";
+  let vpnRefreshBeforeProxySync = false;
   setSaveInFlight(true);
   setSaveProgress(
     2,
@@ -5269,8 +5281,16 @@ function saveEverything() {
     return saveEngineConfigIfNeeded("xray", built.xrayConfig);
   }).then(() => {
     setSaveProgress(
-      38,
-      progressStep(4, 10, "синхронизируем ProxyN"),
+      34,
+      progressStep(4, 10, "запускаем VPN-порты"),
+      "Перезапускаем нужные движки до создания ProxyN, чтобы локальные socks-порты уже слушали на роутере."
+    );
+    return runPostSaveVpnRefresh(preparedProfiles.profiles);
+  }).then(() => {
+    vpnRefreshBeforeProxySync = true;
+    setSaveProgress(
+      44,
+      progressStep(5, 10, "синхронизируем ProxyN"),
       "Обновляем привязки, описания и состояние ProxyN в Keenetic."
     );
     return fetchJson("/cgi-bin/router-proxy-sync.cgi", {
@@ -5287,14 +5307,14 @@ function saveEverything() {
     if (!hasDnsRoutes) {
       setSaveProgress(
         60,
-        progressStep(5, 10, "DNS-маршруты не меняются"),
+        progressStep(6, 10, "DNS-маршруты не меняются"),
         "В UI нет DNS-маршрутов для отправки, переходим к сохранению списка профилей."
       );
       return null;
     }
     setSaveProgress(
-      52,
-      progressStep(5, 10, "применяем DNS-маршруты"),
+      56,
+      progressStep(6, 10, "применяем DNS-маршруты"),
       "Отправляем назначение domain-list групп в ProxyN или прямой ISP-маршрут."
     );
     return fetchJson("/cgi-bin/router-dns-routes-sync.cgi", {
@@ -5305,8 +5325,8 @@ function saveEverything() {
       body: dnsRouteSyncPayload,
     }).then(() => {
       setSaveProgress(
-        64,
-        progressStep(6, 10, "проверяем DNS-маршруты"),
+        66,
+        progressStep(7, 10, "проверяем DNS-маршруты"),
         "Перечитываем DNS-маршруты с роутера и сверяем их с отправленным состоянием."
       );
       return verifySavedDnsRoutePayload(dnsRouteSyncPayload);
@@ -5319,7 +5339,7 @@ function saveEverything() {
     const persistedProfiles = stripDnsRulesFromProfilesDoc(preparedProfiles);
     setSaveProgress(
       74,
-      progressStep(7, 10, "сохраняем список профилей"),
+      progressStep(8, 10, "сохраняем список профилей"),
       "Записываем profiles.json для UI без дублирования DNS-правил внутри профилей."
     );
     return fetchJson("/cgi-bin/xray-profiles-save.cgi", {
@@ -5330,7 +5350,9 @@ function saveEverything() {
       body: pretty(persistedProfiles),
     });
   }).then(() => {
-    return runPostSaveMaintenance(preparedProfiles.profiles, hasDnsRoutes);
+    return runPostSaveMaintenance(preparedProfiles.profiles, hasDnsRoutes, {
+      skipVpnRefresh: vpnRefreshBeforeProxySync,
+    });
   }).then((summary) => {
     setSaveProgress(
       100,
