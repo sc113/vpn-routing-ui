@@ -161,8 +161,8 @@ END {
 }
 ' "$RUNCFG_FILE" > "$PROXIES_FILE"
 
-awk -F'|' '
-NR == FNR {
+awk -F'|' -v routes_file="$ROUTES_FILE" '
+FILENAME == routes_file {
   route[$1] = $2
   next
 }
@@ -171,8 +171,8 @@ NR == FNR {
 }
 ' "$ROUTES_FILE" "$GROUPS_FILE" > "$RULES_JOIN_FILE"
 
-awk -F'|' '
-NR == FNR {
+awk -F'|' -v counts_file="$COUNTS_FILE" '
+FILENAME == counts_file {
   counts[$1] = $2
   next
 }
