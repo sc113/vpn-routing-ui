@@ -1156,6 +1156,7 @@ function normalizeDnsRoutes(payload) {
         groupId,
         description: String((item && item.description) || "").trim(),
         proxyId: normalizeDnsRouteTarget(item && item.proxyId),
+        profileId: String((item && item.profileId) || "").trim(),
         includeCount: Math.max(0, toNumber(item && item.includeCount) || 0),
         includes: Array.isArray(item && item.includes)
           ? item.includes.map((include) => String(include || "").trim()).filter(Boolean)
@@ -1766,6 +1767,56 @@ function setLocalDnsRouteTarget(groupId, target) {
         ? {
             ...route,
             proxyId: normalizedTarget,
+            profileId: "",
+          }
+        : route
+    )
+  );
+  state.profilesDoc = mergeDnsRulesFromRoutes(state.profilesDoc, state.dnsRoutes);
+}
+
+function ensureProfileRouterProxyId(profileId) {
+  const normalizedProfileId = String(profileId || "").trim();
+  const profiles = getProfiles();
+  const target = profiles.find((profile) => profile.id === normalizedProfileId);
+  if (!target) {
+    throw new Error("Профиль для DNS-маршрута не найден.");
+  }
+
+  const proxyId = getEffectiveRouterProxyId(target, target.id);
+  if (!proxyId) {
+    throw new Error("Не удалось подобрать ProxyN для профиля.");
+  }
+
+  if (normalizeRouterProxyId(target.routerProxyId) === proxyId) {
+    return proxyId;
+  }
+
+  state.profilesDoc = normalizeProfilesDoc({
+    version: 1,
+    profiles: profiles.map((profile) =>
+      profile.id === normalizedProfileId
+        ? normalizeProfile({
+            ...profile,
+            routerProxyId: proxyId,
+          })
+        : profile
+    ),
+  });
+  return proxyId;
+}
+
+function setLocalDnsRouteProfileTarget(groupId, profileId) {
+  const normalizedGroupId = normalizeDnsRuleId(groupId);
+  const normalizedProfileId = String(profileId || "").trim();
+  const proxyId = ensureProfileRouterProxyId(normalizedProfileId);
+  state.dnsRoutes = normalizeDnsRoutes(
+    getDnsRoutes().map((route) =>
+      route.groupId === normalizedGroupId
+        ? {
+            ...route,
+            proxyId,
+            profileId: normalizedProfileId,
           }
         : route
     )
@@ -1782,10 +1833,12 @@ function mergeDnsRulesFromRoutes(doc, routes) {
   }
 
   for (const route of routeList) {
-    if (!route.proxyId) {
+    if (!route.proxyId && !route.profileId) {
       continue;
     }
-    const owner = next.profiles.find((profile) => normalizeRouterProxyId(profile.routerProxyId) === route.proxyId);
+    const owner =
+      (route.profileId && next.profiles.find((profile) => profile.id === route.profileId)) ||
+      next.profiles.find((profile) => normalizeRouterProxyId(profile.routerProxyId) === route.proxyId);
     if (owner) {
       owner.dnsRules = normalizeDnsRuleList(owner.dnsRules.concat(route.groupId));
     }
@@ -2935,11 +2988,7 @@ function setDnsRouteAssignment(groupId, profileId) {
   if (normalizedProfileId === DIRECT_DNS_SELECT_VALUE) {
     setLocalDnsRouteTarget(normalizedGroupId, DIRECT_DNS_ROUTE_TARGET);
   } else if (normalizedProfileId) {
-    const target = getProfiles().find((profile) => profile.id === normalizedProfileId);
-    if (!target) {
-      throw new Error("Профиль для DNS-маршрута не найден.");
-    }
-    setLocalDnsRouteTarget(normalizedGroupId, normalizeRouterProxyId(target.routerProxyId));
+    setLocalDnsRouteProfileTarget(normalizedGroupId, normalizedProfileId);
   } else {
     setLocalDnsRouteTarget(normalizedGroupId, "");
   }
@@ -3049,7 +3098,7 @@ function bulkAssignAssignedDnsRoutes(profileId) {
     }
   } else {
     for (const groupId of editableRules) {
-      setLocalDnsRouteTarget(groupId, normalizeRouterProxyId(target.routerProxyId));
+      setLocalDnsRouteProfileTarget(groupId, target.id);
     }
   }
   renderAll();
@@ -4899,11 +4948,26 @@ function buildRouterSyncPayload(profiles) {
     .join("\n");
 }
 
-function buildDnsRouteSyncPayload(routes) {
+function resolveDnsRouteSyncTarget(route, profiles) {
+  const profileId = String((route && route.profileId) || "").trim();
+  if (profileId) {
+    const owner = normalizeProfilesDoc({ version: 1, profiles }).profiles.find(
+      (profile) => profile.id === profileId
+    );
+    const profileProxyId = normalizeRouterProxyId(owner && owner.routerProxyId);
+    if (profileProxyId) {
+      return profileProxyId;
+    }
+  }
+  return normalizeDnsRouteTarget(route && route.proxyId);
+}
+
+function buildDnsRouteSyncPayload(routes, profiles) {
+  const profileList = Array.isArray(profiles) ? profiles : getProfiles();
   return normalizeDnsRoutes(routes)
     .sort((left, right) => {
-      const leftTarget = normalizeDnsRouteTarget(left.proxyId);
-      const rightTarget = normalizeDnsRouteTarget(right.proxyId);
+      const leftTarget = resolveDnsRouteSyncTarget(left, profileList);
+      const rightTarget = resolveDnsRouteSyncTarget(right, profileList);
       const leftPriority = isExternalDnsRouteTarget(leftTarget) ? 1 : leftTarget ? 0 : 2;
       const rightPriority = isExternalDnsRouteTarget(rightTarget) ? 1 : rightTarget ? 0 : 2;
       if (leftPriority !== rightPriority) {
@@ -4911,7 +4975,7 @@ function buildDnsRouteSyncPayload(routes) {
       }
       return dnsRuleOrder(left.groupId) - dnsRuleOrder(right.groupId);
     })
-    .map((route) => ["R", route.groupId, normalizeDnsRouteTarget(route.proxyId)].join("|"))
+    .map((route) => ["R", route.groupId, resolveDnsRouteSyncTarget(route, profileList)].join("|"))
     .join("\n");
 }
 
@@ -5186,7 +5250,6 @@ function saveEverything() {
     preparedProfiles = normalizeProfilesDoc(state.profilesDoc);
     routerSyncPayload = buildRouterSyncPayload(preparedProfiles.profiles);
     hasDnsRoutes = getDnsRoutes().length > 0;
-    dnsRouteSyncPayload = hasDnsRoutes ? buildDnsRouteSyncPayload(getDnsRoutes()) : "";
     if (hasDnsRoutes) {
       preparedProfiles = mergeDnsRulesFromRoutes(preparedProfiles, getDnsRoutes());
       state.profilesDoc = preparedProfiles;
@@ -5220,6 +5283,7 @@ function saveEverything() {
   }).then((syncResult) => {
     preparedProfiles = applyRouterSyncMappings(preparedProfiles.profiles, syncResult);
     state.profilesDoc = preparedProfiles;
+    dnsRouteSyncPayload = hasDnsRoutes ? buildDnsRouteSyncPayload(getDnsRoutes(), preparedProfiles.profiles) : "";
     if (!hasDnsRoutes) {
       setSaveProgress(
         60,
