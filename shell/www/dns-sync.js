@@ -137,7 +137,7 @@
         if (parts[0] === "G" && /^domain-list\d+$/.test(parts[1] || "")) {
           const group = ensureParsedGroup(groups, parts[1]);
           group.description = decodeBase64(parts[2] || "");
-          group.route = parts[3] || "";
+          group.route = "";
           return;
         }
         if (parts[0] === "I" && /^domain-list\d+$/.test(parts[1] || "")) {
@@ -155,7 +155,7 @@
   function serializeTransferText(groups) {
     const lines = [
       "# vpn-routing-ui dns-groups v1",
-      "# G|domain-listN|base64(name/description)|route-target",
+      "# G|domain-listN|base64(name/description)|route-target-legacy-ignored",
       "# I|domain-listN|include-value",
       "# generated " + new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
     ];
@@ -392,7 +392,7 @@
     const suffix = opts.allowShrink ? "&allowShrink=1" : "";
     setBusy(true);
     setProgress(10, "Шаг 1 из 3: готовим DNS-группу");
-    showBanner("warn", "Сохраняем на роутер только выбранную DNS-группу...");
+    showBanner("warn", "Сохраняем на роутер только выбранную DNS-группу без изменения DNS-маршрута...");
     try {
       setProgress(35, "Шаг 2 из 3: отправляем группу на роутер");
       const data = await fetchJson(API_URL + "?action=apply-group" + suffix, {
@@ -403,9 +403,9 @@
       setProgress(100, "Шаг 3 из 3: группа сохранена");
       showBanner(
         "ok",
-        `${data.message || "DNS-группа сохранена на роутер."} ${group.description || group.groupId}: применено ${hostCountText(
-          data.includesApplied || group.includes.length
-        )}.`
+        `${data.message || "DNS-группа сохранена на роутер."} ${group.description || group.groupId}: добавлено ${hostCountText(
+          data.includesApplied || 0
+        )}, удалено ${hostCountText(data.includesRemoved || 0)}.`
       );
       finishProgress();
     } catch (error) {
@@ -547,7 +547,7 @@
     }
     if (
       !window.confirm(
-        `Полностью заменить DNS-группы роутера содержимым поля? Будет применено групп: ${metrics.groupCount}, ${hostCountText(metrics.includeCount)}. Перед изменением создаётся backup running-config.`
+        `Добавить или обновить DNS-группы из поля? Будет обработано групп: ${metrics.groupCount}, ${hostCountText(metrics.includeCount)}. DNS-маршруты и ProxyN не изменятся. Перед изменением создаётся backup running-config.`
       )
     ) {
       return;
@@ -555,9 +555,9 @@
 
     setBusy(true);
     setProgress(10, "Шаг 1 из 4: проверяем DNS-файл");
-    showBanner("warn", "Применяем DNS-файл на роутер...");
+    showBanner("warn", "Применяем DNS-группы на роутер без изменения DNS-маршрутов...");
     try {
-      setProgress(30, "Шаг 2 из 4: отправляем DNS-файл на роутер");
+      setProgress(30, "Шаг 2 из 4: отправляем DNS-группы на роутер");
       const data = await fetchJson(API_URL + "?action=apply", {
         method: "POST",
         headers: { "Content-Type": "text/plain; charset=utf-8" },
@@ -565,9 +565,9 @@
       });
       setProgress(82, "Шаг 3 из 4: перечитываем DNS-файл с роутера");
       await loadFromRouter(
-        `${data.message || "DNS-файл сохранён на роутер."} Обновлено групп: ${data.updatedGroups || 0}, удалено: ${
-          data.removedGroups || 0
-        }, применено ${hostCountText(data.includesApplied || 0)}.`
+        `${data.message || "DNS-файл сохранён на роутер."} Обновлено групп: ${data.updatedGroups || 0}, создано: ${
+          data.createdGroups || 0
+        }, добавлено ${hostCountText(data.includesApplied || 0)}, удалено ${hostCountText(data.includesRemoved || 0)}. Маршруты не изменялись.`
       );
       setProgress(100, "Шаг 4 из 4: DNS-файл сохранён");
       finishProgress();
