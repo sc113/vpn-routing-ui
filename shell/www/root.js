@@ -225,6 +225,56 @@
     return match ? match[0] : text.split(/\r?\n/)[0];
   }
 
+  function timestampToDate(value) {
+    const epoch = toNumber(value);
+    if (!epoch) {
+      return null;
+    }
+    const date = new Date(epoch * 1000);
+    return Number.isFinite(date.getTime()) ? date : null;
+  }
+
+  function formatShortDate(date) {
+    if (!date) {
+      return "не датировано";
+    }
+    return date.toLocaleDateString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "2-digit",
+    });
+  }
+
+  function formatUpdateAge(date) {
+    if (!date) {
+      return "дата обновления пока неизвестна";
+    }
+    const start = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const days = Math.max(0, Math.floor((today - start) / 86400000));
+    if (days === 0) {
+      return "сегодня";
+    }
+    if (days === 1) {
+      return "вчера";
+    }
+    return days + " дн. назад";
+  }
+
+  function renderUpdatedChip(timestamp, label) {
+    const date = timestampToDate(timestamp);
+    const title = date
+      ? "Обновлено: " + date.toLocaleString("ru-RU") + " (" + formatUpdateAge(date) + ")."
+      : "Дата появится после следующей установки или обновления.";
+    return `
+      <div class="engine-inline-chip ${date ? "" : "chip-muted"}" title="${escapeHtml(title)}">
+        <span class="label">${escapeHtml(label || "Обновлено")}</span>
+        <span class="value mono">${escapeHtml(date ? formatShortDate(date) : "нет даты")}</span>
+      </div>
+    `;
+  }
+
   function compactPath(value) {
     const text = String(value || "").trim();
     if (!text) {
@@ -680,6 +730,7 @@
             <span class="label">Следующий socks</span>
             <span class="value mono">:${nextFreePort(profileList)}</span>
           </div>
+          ${renderUpdatedChip(state.status.uiUpdatedAt, "UI обновлён")}
           <div class="engine-inline-chip chip-muted">
             <span class="label">Разделы</span>
             <span class="value">ключи / DNS / клиенты</span>
@@ -741,6 +792,7 @@
                 <span class="label">Версия</span>
                 <span class="value">${renderVersionValue(options.engine, options.version)}</span>
               </div>
+              ${renderUpdatedChip(options.updatedAt)}
             </div>
             <div class="engine-chip-row">
               ${options.extraChipHtml || ""}
@@ -783,6 +835,7 @@
         running: Boolean(state.status.xrayRunning),
         serviceEnabled: xrayInstalled,
         version: state.status.xrayVersion,
+        updatedAt: state.status.xrayUpdatedAt,
         extraChipHtml: `
           <div class="engine-inline-chip" title="${escapeHtml(xrayConfigPath)}">
             <span class="label">Config</span>
@@ -797,6 +850,7 @@
         running: Boolean(state.status.singboxRunning),
         serviceEnabled: singboxInstalled && singboxService,
         version: state.status.singboxVersion,
+        updatedAt: state.status.singboxUpdatedAt,
         extraChipHtml: `
           <div class="engine-inline-chip" title="${escapeHtml(singboxConfigPath)}">
             <span class="label">Config</span>

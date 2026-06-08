@@ -14,6 +14,7 @@ TARGET_BIN="$TARGET_ROOT/bin"
 TARGET_STATE="/opt/etc/vpn-routing-ui"
 TARGET_RUNTIME="/opt/etc/vpn-routing-ui-runtime"
 TARGET_INIT="/opt/etc/init.d"
+VERSION_STATE="$TARGET_STATE/versions.state"
 
 WORK_DIR=""
 
@@ -158,6 +159,19 @@ copy_payload() {
   cp -f "$INIT_SRC/S68vpn-routing-ui" "$TARGET_INIT/S68vpn-routing-ui"
 }
 
+mark_ui_updated() {
+  now_epoch=$(date +%s 2>/dev/null || echo 0)
+  now_iso=$(date '+%Y-%m-%dT%H:%M:%S%z' 2>/dev/null || date 2>/dev/null || echo "")
+  tmp="$VERSION_STATE.$$"
+  if [ -f "$VERSION_STATE" ]; then
+    awk -F'|' '$1 != "ui" { print $0 }' "$VERSION_STATE" > "$tmp" 2>/dev/null || : > "$tmp"
+  else
+    : > "$tmp"
+  fi
+  printf 'ui|%s|%s\n' "$now_epoch" "$now_iso" >> "$tmp"
+  mv "$tmp" "$VERSION_STATE"
+}
+
 if [ "$(id -u 2>/dev/null || echo 1)" != "0" ]; then
   fail "запусти установку от root"
 fi
@@ -177,6 +191,7 @@ log "[4/7] Готовим чистую структуру VPN Routing UI ..."
 
 log "[5/7] Копируем web/CGI/helper/init.d ..."
 copy_payload
+mark_ui_updated
 chmod 755 "$TARGET_CGI"/* "$TARGET_BIN"/* \
   "$TARGET_INIT"/S66vpn-routing-tune \
   "$TARGET_INIT"/S67vpn-routing-engine-guard \

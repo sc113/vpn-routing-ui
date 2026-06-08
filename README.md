@@ -31,6 +31,7 @@
 - Экспорт/импорт DNS-групп в формате `vpn-routing-ui dns-groups v1`.
 - GitHub raw-file sync для переноса DNS-групп между роутерами.
 - Виджет CPU/RAM/процессов для быстрой диагностики роутера.
+- Даты последнего обновления UI и VPN-движков прямо на странице обзора.
 
 ## Быстрая установка
 
@@ -203,6 +204,8 @@ ndmc -c 'show running-config' | grep '^route object-group domain-list'
 ```
 
 CPU в виджете состояния берётся из Keenetic control-plane (`ndmc -c "show system"`, поле `cpuload`), а не из коротких выборок `top`. Это даёт одинаковую шкалу на mips и aarch64 и ближе к графику штатной прошивки.
+
+Дата обновления UI пишется installer-ом в `/opt/etc/vpn-routing-ui/versions.state`. Даты Xray и sing-box берутся из Entware `opkg status` (`Installed-Time`), поэтому показывают время установки или последнего обновления пакета через opkg.
 
 ## Безопасность
 

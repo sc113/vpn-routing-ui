@@ -18,6 +18,29 @@ installed_pkg_version() {
   opkg list-installed 2>/dev/null | awk -F ' - ' -v pkg="$1" '$1 == pkg { print $3; exit }'
 }
 
+installed_pkg_time() {
+  opkg status "$1" 2>/dev/null | awk '
+    /^Installed-Time:[[:space:]]*/ {
+      value = $2
+      if (value ~ /^[0-9]+$/) {
+        print value
+      }
+      exit
+    }
+  '
+}
+
+version_state_epoch() {
+  awk -F'|' -v key="$1" '$1 == key && $2 ~ /^[0-9]+$/ { print $2; exit }' /opt/etc/vpn-routing-ui/versions.state 2>/dev/null
+}
+
+json_number() {
+  case "$1" in
+    ''|*[!0-9]*) printf '0' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
 echo "Content-Type: application/json"
 echo "Cache-Control: no-store"
 echo ""
@@ -58,6 +81,10 @@ fi
 if [ -z "$SINGBOX_VERSION" ]; then
   SINGBOX_VERSION=$(installed_pkg_version "sing-box-go")
 fi
+
+UI_UPDATED_AT=$(version_state_epoch "ui")
+XRAY_UPDATED_AT=$(installed_pkg_time "xray")
+SINGBOX_UPDATED_AT=$(installed_pkg_time "sing-box-go")
 
 CONFIG_PATH="/opt/etc/xray/config.json"
 if [ -f "$XRAY_INIT" ]; then
@@ -107,6 +134,9 @@ printf '"singboxRunning":%s,' "$(bool_json "$SINGBOX_RUNNING")"
 printf '"singboxService":%s,' "$(bool_json "$SINGBOX_SERVICE")"
 printf '"xrayVersion":"%s",' "$(json_escape "$XRAY_VERSION")"
 printf '"singboxVersion":"%s",' "$(json_escape "$SINGBOX_VERSION")"
+printf '"uiUpdatedAt":%s,' "$(json_number "$UI_UPDATED_AT")"
+printf '"xrayUpdatedAt":%s,' "$(json_number "$XRAY_UPDATED_AT")"
+printf '"singboxUpdatedAt":%s,' "$(json_number "$SINGBOX_UPDATED_AT")"
 printf '"xrayConfigPath":"%s",' "$(json_escape "$CONFIG_PATH")"
 printf '"singboxConfigPath":"%s",' "$(json_escape "$SINGBOX_CONFIG_PATH")"
 printf '"webServer":"%s"' "$(json_escape "$WEB_SERVER")"
