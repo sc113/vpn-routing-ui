@@ -59,6 +59,8 @@ fetch_url() {
 
 build_fallback_hosts() {
   ip neigh show 2>/dev/null > "$NEIGH_FILE" || : > "$NEIGH_FILE"
+  ndmc -c 'show ip dhcp binding' > "$DHCP_FILE" 2>/dev/null || : > "$DHCP_FILE"
+  ndmc -c 'show associations' > "$ASSOC_FILE" 2>/dev/null || : > "$ASSOC_FILE"
   awk '
   function is_mac(value) {
     return value ~ /^([0-9a-f][0-9a-f]:){5}[0-9a-f][0-9a-f]$/
@@ -66,16 +68,48 @@ build_fallback_hosts() {
   function is_lan_dev(value) {
     return value ~ /^(br[0-9]+|Bridge[0-9]+|Home|ra[0-9.]*|apcli[0-9.]*)$/
   }
+  function json_string(value) {
+    gsub(/\\/, "\\\\", value)
+    gsub(/"/, "\\\"", value)
+    gsub(/\r/, "", value)
+    gsub(/\n/, " ", value)
+    return value
+  }
+  function remember_host(mac_value, ip_value, hostname_value, name_value) {
+    mac_value = tolower(mac_value)
+    if (!is_mac(mac_value)) {
+      return
+    }
+    seen[mac_value] = 1
+    if (ip_value != "" && ip[mac_value] == "") {
+      ip[mac_value] = ip_value
+    }
+    if (hostname_value != "" && hostname[mac_value] == "") {
+      hostname[mac_value] = hostname_value
+    }
+    if (name_value != "" && name[mac_value] == "") {
+      name[mac_value] = name_value
+    }
+  }
+  function flush_lease() {
+    remember_host(lease_mac, lease_ip, lease_hostname, lease_name)
+    lease_ip = ""
+    lease_mac = ""
+    lease_hostname = ""
+    lease_name = ""
+  }
   function print_host(mac, ip, active, first) {
     if (!first) {
       printf ","
     }
-    printf "{\"mac\":\"%s\",\"ip\":\"%s\",\"hostname\":\"\",\"name\":\"\",\"active\":%s,\"link\":\"%s\",\"interface\":{\"description\":\"%s\"}}",
+    printf "{\"mac\":\"%s\",\"ip\":\"%s\",\"hostname\":\"%s\",\"name\":\"%s\",\"active\":%s,\"link\":\"%s\",\"interface\":{\"description\":\"%s\"}}",
       mac,
-      ip,
+      json_string(ip),
+      json_string(hostname[mac]),
+      json_string(name[mac]),
       active ? "true" : "false",
       active ? "up" : "",
-      "Keenetic fallback"
+      active ? "Keenetic DHCP / Wi-Fi" : "Keenetic DHCP"
   }
   FILENAME == run_file {
     if ($1 == "ip" && $2 == "hotspot") {
@@ -90,6 +124,47 @@ build_fallback_hosts() {
       mac = tolower($2)
       if (is_mac(mac)) {
         seen[mac] = 1
+      }
+    }
+    if ($1 == "ip" && $2 == "dhcp" && $3 == "host") {
+      remember_host($4, $5, "", "")
+      next
+    }
+    next
+  }
+  FILENAME == dhcp_file {
+    if ($1 == "lease:") {
+      flush_lease()
+      next
+    }
+    if ($1 == "ip:") {
+      lease_ip = $2
+      next
+    }
+    if ($1 == "mac:" || $1 == "via:") {
+      if (lease_mac == "") {
+        lease_mac = tolower($2)
+      }
+      next
+    }
+    if ($1 == "hostname:") {
+      sub(/^[ \t]*hostname:[ \t]*/, "")
+      lease_hostname = $0
+      next
+    }
+    if ($1 == "name:") {
+      sub(/^[ \t]*name:[ \t]*/, "")
+      lease_name = $0
+      next
+    }
+    next
+  }
+  FILENAME == assoc_file {
+    if ($1 == "mac:") {
+      mac = tolower($2)
+      if (is_mac(mac)) {
+        seen[mac] = 1
+        active[mac] = 1
       }
     }
     next
@@ -119,6 +194,7 @@ build_fallback_hosts() {
     next
   }
   END {
+    flush_lease()
     first = 1
     printf "["
     for (mac in seen) {
@@ -127,7 +203,12 @@ build_fallback_hosts() {
     }
     printf "]"
   }
-  ' -v run_file="$RUNCFG_FILE" -v neigh_file="$NEIGH_FILE" "$RUNCFG_FILE" "$NEIGH_FILE" > "$HOSTS_FILE"
+  ' \
+    -v run_file="$RUNCFG_FILE" \
+    -v neigh_file="$NEIGH_FILE" \
+    -v dhcp_file="$DHCP_FILE" \
+    -v assoc_file="$ASSOC_FILE" \
+    "$RUNCFG_FILE" "$DHCP_FILE" "$ASSOC_FILE" "$NEIGH_FILE" > "$HOSTS_FILE"
 }
 
 acquire_lock() {
@@ -145,6 +226,8 @@ cleanup() {
     "$RUNCFG_FILE" \
     "$HOSTS_FILE" \
     "$NEIGH_FILE" \
+    "$DHCP_FILE" \
+    "$ASSOC_FILE" \
     "$POLICIES_FILE" \
     "$ASSIGNMENTS_FILE" \
     /tmp/router-client-policies-show.$$ \
@@ -172,7 +255,7 @@ emit_state() {
   if ! fetch_url "http://127.0.0.1:79/rci/show/ip/hotspot/host" > "$HOSTS_FILE" 2>/dev/null; then
     : > "$HOSTS_FILE"
   fi
-  if [ ! -s "$HOSTS_FILE" ] || ! grep -q '^[[:space:]]*\[' "$HOSTS_FILE"; then
+  if [ ! -s "$HOSTS_FILE" ] || ! grep -q '^[[:space:]]*\[' "$HOSTS_FILE" || ! grep -q '"mac"' "$HOSTS_FILE"; then
     build_fallback_hosts
   fi
 
@@ -317,6 +400,8 @@ TMP_INPUT="/opt/tmp/router-client-policies-$$.txt"
 RUNCFG_FILE="/opt/tmp/router-client-policies-running-$$.txt"
 HOSTS_FILE="/opt/tmp/router-client-policies-hosts-$$.json"
 NEIGH_FILE="/opt/tmp/router-client-policies-neigh-$$.txt"
+DHCP_FILE="/opt/tmp/router-client-policies-dhcp-$$.txt"
+ASSOC_FILE="/opt/tmp/router-client-policies-assoc-$$.txt"
 POLICIES_FILE="/opt/tmp/router-client-policies-policies-$$.txt"
 ASSIGNMENTS_FILE="/opt/tmp/router-client-policies-assignments-$$.txt"
 

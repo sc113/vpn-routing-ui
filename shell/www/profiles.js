@@ -3803,7 +3803,7 @@ function renderClientPolicies() {
   if (!hosts.length) {
     if (note) {
       note.className = "runtime-health-note is-bad";
-      note.textContent = "Keenetic не отдал ни одного клиента из ip hotspot host.";
+      note.textContent = "Keenetic не отдал ни одного клиента из hotspot, DHCP или Wi-Fi associations.";
       note.hidden = false;
     }
     body.innerHTML = `
