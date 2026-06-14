@@ -179,6 +179,15 @@ DNS-маршруты назначаются во вкладке `Профили`
 
 Такой порядок важен на новой установке: локальные SOCKS-порты должны уже слушать, иначе Keenetic не сможет корректно поднять `ProxyN`.
 
+Для CDN-сервисов добавляйте стабильные корневые домены, а не одноразовые CNAME-хосты. Например, SoundCloud может отдавать картинки и поток через `*.cloudfront.net`: в списке нужен `cloudfront.net`, а не текущий `d36...cloudfront.net`, который меняется.
+
+Не назначайте отдельный DNS filter preset на интерфейс Keenetic, где используются DNS-based маршруты. Если клиент получает DNS-ответы из interface preset (`dns-proxy filter assign interface preset Bridge0 ...`), а FQDN-cache маршрутов резолвит через другой профиль, CDN IP могут расходиться и трафик уйдёт мимо `ProxyN`. Для такой сети оставьте системный DNS-профиль:
+
+```sh
+ndmc -c 'dns-proxy no filter assign interface preset Bridge0'
+ndmc -c 'system configuration save'
+```
+
 ## Полный Маршрут Устройств
 
 Вкладка `Полный маршрут устройств` назначает отдельному LAN-клиенту Keenetic `ip policy`, которая отправляет весь трафик клиента через выбранный `ProxyN`.
