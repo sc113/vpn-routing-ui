@@ -151,7 +151,7 @@ copy_payload() {
   if [ "$SRC_MODE" = "share" ]; then
     cp -f "$BIN_SRC"/* "$TARGET_BIN"/
   else
-    cp -f "$BIN_SRC/ui-paths.sh" "$TARGET_BIN"/
+    cp -f "$BIN_SRC/ui-paths.sh" "$BIN_SRC/ui-update.sh" "$TARGET_BIN"/
   fi
 
   cp -f "$INIT_SRC/S66vpn-routing-tune" "$TARGET_INIT/S66vpn-routing-tune"

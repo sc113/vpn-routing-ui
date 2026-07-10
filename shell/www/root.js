@@ -4,6 +4,7 @@
   const statusRows = document.getElementById("statusRows");
   const reloadBtn = document.getElementById("reloadBtn");
   const checkUpdatesBtn = document.getElementById("checkUpdatesBtn");
+  const updateUiBtn = document.getElementById("updateUiBtn");
   const state = {
     status: null,
     profiles: [],
@@ -326,6 +327,9 @@
     if (checkUpdatesBtn) {
       checkUpdatesBtn.disabled = disabled;
     }
+    if (updateUiBtn) {
+      updateUiBtn.disabled = disabled;
+    }
   }
 
   function actionLabel(kind, action, busy) {
@@ -573,6 +577,66 @@
     } finally {
       state.actionBusy = null;
       setControlsDisabled(false);
+      renderAll();
+    }
+  }
+
+  function wait(milliseconds) {
+    return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+  }
+
+  async function waitForUiUpdate() {
+    const deadline = Date.now() + 120000;
+    while (Date.now() < deadline) {
+      await wait(1500);
+      let data;
+      try {
+        data = await fetchJson("/cgi-bin/ui-update.cgi?action=status", { cache: "no-store" });
+      } catch (error) {
+        continue;
+      }
+      if (data.status === "success") {
+        return data;
+      }
+      if (data.status === "failed") {
+        throw new Error(data.message || "Обновление UI завершилось с ошибкой.");
+      }
+    }
+    throw new Error("UI не вернулся после обновления за две минуты.");
+  }
+
+  async function runUiUpdate() {
+    if (state.actionBusy) {
+      return;
+    }
+    if (!window.confirm("Загрузить текущую версию UI из GitHub? Профили, DNS-группы и маршруты сохранятся.")) {
+      return;
+    }
+
+    state.actionBusy = { kind: "ui", engine: "ui", action: "update" };
+    setControlsDisabled(true);
+    renderAll();
+    if (updateUiBtn) {
+      updateUiBtn.textContent = "Запускаем...";
+    }
+    showBanner("warn", "Ставим обновление из GitHub. Интерфейс на несколько секунд перезапустится...");
+
+    try {
+      await fetchJson("/cgi-bin/ui-update.cgi?action=start", {
+        method: "POST",
+        cache: "no-store",
+      });
+      if (updateUiBtn) {
+        updateUiBtn.textContent = "Обновляем UI...";
+      }
+      await waitForUiUpdate();
+      window.location.reload();
+    } finally {
+      state.actionBusy = null;
+      setControlsDisabled(false);
+      if (updateUiBtn) {
+        updateUiBtn.textContent = "Обновить UI из GitHub";
+      }
       renderAll();
     }
   }
@@ -988,6 +1052,12 @@
   if (checkUpdatesBtn) {
     checkUpdatesBtn.addEventListener("click", function () {
       loadPackageUpdates(true, { quiet: false });
+    });
+  }
+
+  if (updateUiBtn) {
+    updateUiBtn.addEventListener("click", function () {
+      runUiUpdate().catch((error) => showBanner("error", error.message));
     });
   }
 
