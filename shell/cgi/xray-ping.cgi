@@ -97,7 +97,7 @@ if [ -n "$SOCKS_PORT" ] && [ "$SOCKS_PORT" -gt 65535 ]; then
   exit 0
 fi
 
-PING_OUTPUT=$(/opt/bin/ping -c 3 -W 2 "$HOST" 2>&1)
+PING_OUTPUT=$(/opt/bin/ping -c 1 -W 1 "$HOST" 2>&1)
 PING_CODE=$?
 ICMP_OK=0
 [ "$PING_CODE" -eq 0 ] && ICMP_OK=1
@@ -141,6 +141,23 @@ if [ -n "$PORT" ] && [ -x /opt/bin/nc ]; then
   else
     TCP_MESSAGE="TCP $PORT недоступен."
   fi
+fi
+
+if [ "$TCP_OK" -eq 1 ] && [ -x /opt/bin/curl ]; then
+  case "$HOST" in
+    *:*) TCP_TIMING_URL="ftp://[$HOST]:$PORT/" ;;
+    *) TCP_TIMING_URL="ftp://$HOST:$PORT/" ;;
+  esac
+  TCP_TIMING_TMP="/opt/tmp/ping-curl-tcp-$$.log"
+
+  # FTP waits for a greeting before writing, so this times TCP connect without sending proxy data.
+  TCP_CONNECT_SECONDS=$(/opt/bin/curl -sS -o /dev/null --connect-timeout 2 --max-time 1 -w '%{time_connect}' "$TCP_TIMING_URL" 2>"$TCP_TIMING_TMP")
+  rm -f "$TCP_TIMING_TMP"
+  TCP_CONNECT_MS=$(printf '%s' "$TCP_CONNECT_SECONDS" | awk '/^[0-9]+([.][0-9]+)?$/ { printf "%.0f", $1 * 1000 }')
+  case "$TCP_CONNECT_MS" in
+    ''|0|*[!0-9]*) ;;
+    *) TCP_MS="$TCP_CONNECT_MS" ;;
+  esac
 fi
 
 PROXY_ATTEMPTED=0
