@@ -102,7 +102,7 @@
           </p>
         </div>
         <div class="toolbar-right">
-          <button id="pingAllBtn" class="ghost">Пинг всех</button>
+          <button id="pingAllBtn" class="ghost">Проверить все</button>
           <button id="openCreateBtn">+ Добавить ключ</button>
         </div>
       </div>
@@ -584,15 +584,15 @@
             <section class="subpanel">
               <div class="toolbar modal-subtoolbar modal-status-toolbar">
                 <div>
-                  <h3>Проверка сервера</h3>
-                  <p class="hint">Проверка идёт прямо с роутера по адресу и порту из текущих полей.</p>
+                  <h3>Проверка профиля</h3>
+                  <p class="hint">Проверяем TCP-порт сервера и реальный выход через локальный SOCKS-порт запущенного профиля.</p>
                 </div>
-                <button id="pingSelectedBtn" class="secondary" type="button">Пинг сервера</button>
+                <button id="pingSelectedBtn" class="secondary" type="button">Проверить профиль</button>
               </div>
               <div id="selectedPingStatus" class="value">
                 <span class="status-pill status-neutral">Не проверялся</span>
               </div>
-              <div id="selectedPingDetails" class="field-note">Пинг идёт прямо с роутера.</div>
+              <div id="selectedPingDetails" class="field-note">Проверка подтверждает выход через локальный SOCKS-порт профиля.</div>
             </section>
 
             <section class="subpanel">

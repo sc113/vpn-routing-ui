@@ -3178,7 +3178,7 @@ function resetEditorFields() {
     $("selectedPingStatus").innerHTML = '<span class="status-pill status-neutral">Не проверялся</span>';
   }
   if ($("selectedPingDetails")) {
-    $("selectedPingDetails").textContent = "Пинг идёт прямо с роутера.";
+    $("selectedPingDetails").textContent = "Проверка подтверждает выход через локальный SOCKS-порт профиля.";
   }
   renderProtocolGroups("shadowsocks");
 }
@@ -3214,7 +3214,8 @@ function probeSummary(profile) {
   if (Number.isFinite(probe.avgMs)) {
     return `<span class="${delayClass(probe.avgMs)}">${Math.round(probe.avgMs)}</span>`;
   }
-  return `<span class="${probe.kind === "ok" ? "delay-good" : "delay-bad"}">${escapeHtml(probe.text)}</span>`;
+  const textClass = probe.kind === "ok" ? "delay-good" : probe.kind === "warn" ? "delay-warn" : "delay-bad";
+  return `<span class="${textClass}">${escapeHtml(probe.text)}</span>`;
 }
 
 function enabledPill(profile) {
@@ -4111,7 +4112,7 @@ function renderSelectedOverview() {
         <div class="value">${escapeHtml(buildDnsRulesSummary(profile))}</div>
       </div>
       <div class="selected-overview-card">
-        <div class="label">Пинг сервера</div>
+        <div class="label">Проверка профиля</div>
         <div class="value">${probePill(profile.id)}<div class="field-note">${probeDetails}</div></div>
       </div>
       <div class="selected-overview-card">
@@ -4121,7 +4122,7 @@ function renderSelectedOverview() {
     </div>
     <div class="selected-overview-actions">
       <button type="button" class="secondary" data-selected-action="edit">Открыть редактор</button>
-      <button type="button" class="ghost" data-selected-action="ping"${state.saveInFlight ? " disabled" : ""}>Пинг сервера</button>
+      <button type="button" class="ghost" data-selected-action="ping"${state.saveInFlight ? " disabled" : ""}>Проверить профиль</button>
       <button type="button" class="ghost" data-selected-action="egress"${state.saveInFlight ? " disabled" : ""}>Внешний IP</button>
     </div>
   `;
@@ -4184,7 +4185,9 @@ function renderModalStatus(profile) {
       : '<span class="status-pill status-neutral">Не проверялся</span>';
   }
   if ($("selectedPingDetails")) {
-    $("selectedPingDetails").textContent = probe ? probe.details : "Пинг идёт прямо с роутера.";
+    $("selectedPingDetails").textContent = probe
+      ? probe.details
+      : "Проверка подтверждает выход через локальный SOCKS-порт профиля.";
   }
 }
 
@@ -4768,42 +4771,105 @@ function refreshProbeDependentViews(profileId) {
   }
 }
 
+function parseProbeMilliseconds(value) {
+  if (value === "" || value === null || typeof value === "undefined") {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function fetchProbeJson(url) {
+  return fetch(url, { cache: "no-store" }).then(async (response) => {
+    const data = await response.json().catch(() => ({}));
+    const errorMessage = data && (data.error || data.message);
+    const errorDetails = data && data.details ? String(data.details) : "";
+    const fullError =
+      errorMessage && errorDetails && !String(errorMessage).includes(errorDetails)
+        ? errorMessage + ": " + errorDetails
+        : errorMessage;
+    if (!response.ok) {
+      throw new Error(fullError || "HTTP " + response.status);
+    }
+    return data;
+  });
+}
+
 function pingProfile(profile) {
+  const socksPort = Number(profile.localPort || 0);
+  if (!Number.isInteger(socksPort) || socksPort < 1 || socksPort > 65535) {
+    setProbeResult(
+      profile.id,
+      "bad",
+      "Нет локального SOCKS",
+      "Для реальной проверки профиля нужен назначенный локальный SOCKS-порт.",
+      null
+    );
+    refreshProbeDependentViews(profile.id);
+    return Promise.resolve({ ok: false, proxyAttempted: true, proxyOk: false });
+  }
+
   setProbeResult(
     profile.id,
     "pending",
     "Идёт проверка",
-    "Проверяем " + profile.server.address + ":" + (profile.server.port || "") + " с роутера..."
+    "Проверяем TCP " +
+      profile.server.address +
+      ":" +
+      (profile.server.port || "") +
+      " и выход через SOCKS :" +
+      socksPort +
+      "..."
   );
   refreshProbeDependentViews(profile.id);
 
-  return fetchJson(
+  return fetchProbeJson(
     "/cgi-bin/xray-ping.cgi?host=" +
       encodeURIComponent(profile.server.address) +
       "&port=" +
-      encodeURIComponent(String(profile.server.port || "")),
-    { cache: "no-store" }
+      encodeURIComponent(String(profile.server.port || "")) +
+      "&socksPort=" +
+      encodeURIComponent(String(socksPort))
   ).then((data) => {
     const details = [];
     if (data.ip) details.push("IP " + data.ip);
-    if (data.avgMs) details.push("avg " + data.avgMs + " мс");
+    const icmpMs = parseProbeMilliseconds(data.avgMs);
+    const tcpMs = parseProbeMilliseconds(data.tcpMs);
+    const proxyMs = parseProbeMilliseconds(data.proxyMs);
+    if (icmpMs !== null) details.push("ICMP avg " + Math.round(icmpMs) + " мс");
+    if (tcpMs !== null) details.push("TCP " + Math.round(tcpMs) + " мс");
     if (data.loss) details.push("loss " + data.loss);
     if (data.tcpMessage) details.push(data.tcpMessage);
+    if (proxyMs !== null) details.push("SOCKS " + Math.round(proxyMs) + " мс");
+    if (data.egressIp) details.push("внешний IP " + data.egressIp);
+    if (data.proxyMessage) details.push(data.proxyMessage);
     if (data.message) details.push(data.message);
+    if (data.error) details.push(data.error);
 
-    if (data.ok) {
-      setProbeResult(profile.id, "ok", "Сервер отвечает", details.join(" | "), Number(data.avgMs || 0));
+    if (data.proxyAttempted && data.proxyOk) {
+      setProbeResult(profile.id, "ok", "Профиль работает", details.join(" | "), proxyMs);
+    } else if (data.proxyAttempted) {
+      const kind = data.tcpOk || data.ip ? "warn" : "bad";
+      const text = data.tcpOk ? "TCP доступен, SOCKS не работает" : "Профиль не работает";
+      setProbeResult(profile.id, kind, text, details.join(" | "), null);
+    } else if (data.ok) {
+      setProbeResult(profile.id, "ok", "Сервер отвечает", details.join(" | "), icmpMs);
     } else {
       setProbeResult(
         profile.id,
         data.ip ? "warn" : "bad",
         data.ip ? "ICMP не отвечает" : "Ошибка проверки",
         details.join(" | "),
-        Number(data.avgMs || 0)
+        null
       );
     }
 
     refreshProbeDependentViews(profile.id);
+    return data;
+  }).catch((error) => {
+    setProbeResult(profile.id, "bad", "Ошибка проверки", error.message, null);
+    refreshProbeDependentViews(profile.id);
+    throw error;
   });
 }
 
@@ -4861,7 +4927,7 @@ async function pingAllProfiles() {
     }
     showBanner(
       issueCount ? "warn" : "ok",
-      "Проверка серверов завершена: отвечают " + okCount + ", проблемы у " + issueCount + "."
+      "Проверка профилей завершена: работают " + okCount + ", проблемы у " + issueCount + "."
     );
   } finally {
     state.pingAllInFlight = false;
@@ -5491,7 +5557,7 @@ function wireEvents() {
 
   $("pingSelectedBtn").addEventListener("click", function () {
     pingModalDraft()
-      .then(() => showBanner("ok", "Проверка сервера завершена."))
+      .then((data) => showBanner(data && data.proxyAttempted && !data.proxyOk ? "warn" : "ok", "Проверка профиля завершена."))
       .catch((error) => showBanner("error", error.message));
   });
 
@@ -5723,7 +5789,7 @@ function wireEvents() {
         }
       } else if (action === "ping") {
         pingSelectedProfile()
-          .then(() => showBanner("ok", "Проверка сервера завершена."))
+          .then((data) => showBanner(data && data.proxyAttempted && !data.proxyOk ? "warn" : "ok", "Проверка профиля завершена."))
           .catch((error) => showBanner("error", error.message));
       } else if (action === "egress") {
         testSelectedProfileEgress()
