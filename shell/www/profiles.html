@@ -107,6 +107,15 @@
         </div>
       </div>
 
+      <div id="pingProgress" class="probe-progress" role="status" aria-live="polite" hidden>
+        <div class="probe-progress-copy">
+          <strong id="pingProgressTitle">Проверяем профили</strong>
+          <span id="pingProgressDetail">Подготавливаем проверку...</span>
+        </div>
+        <div class="probe-progress-meter" aria-hidden="true"><span id="pingProgressBar"></span></div>
+        <span id="pingProgressPercent" class="probe-progress-percent">0%</span>
+      </div>
+
       <div class="table-shell">
         <table class="profiles-table">
           <thead>

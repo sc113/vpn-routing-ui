@@ -908,6 +908,63 @@ button.ghost:hover {
   background: rgba(255, 255, 255, 0.05);
 }
 
+.probe-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 220px) auto;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(34, 166, 153, 0.3);
+  border-radius: 6px;
+  background: rgba(34, 166, 153, 0.08);
+  color: var(--text);
+}
+
+.probe-progress[hidden] {
+  display: none;
+}
+
+.probe-progress-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.probe-progress-copy strong,
+.probe-progress-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.probe-progress-copy span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.probe-progress-meter {
+  height: 7px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.probe-progress-meter span {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: #22a699;
+  transition: width 160ms ease;
+}
+
+.probe-progress-percent {
+  min-width: 38px;
+  text-align: right;
+  color: #b9fff5;
+  font-variant-numeric: tabular-nums;
+}
+
 button.refresh-button,
 .button-like.refresh-button {
   display: inline-flex;
@@ -2647,6 +2704,19 @@ textarea {
   .panel {
     padding: 14px;
     border-radius: 14px;
+  }
+
+  .probe-progress {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .probe-progress-meter {
+    width: 100%;
+  }
+
+  .probe-progress-percent {
+    text-align: left;
   }
 
   .dns-bulk-controls {

@@ -47,6 +47,7 @@ const state = {
   egressResults: {},
   probeResults: {},
   pingAllInFlight: false,
+  pingAllProgress: null,
   saveInFlight: false,
   saveProgress: null,
   dnsRefreshInFlight: false,
@@ -489,6 +490,16 @@ function updateBusyControls() {
   }
   if ($("pingAllBtn")) {
     $("pingAllBtn").disabled = busy || state.pingAllInFlight;
+    const progress = state.pingAllProgress;
+    if (state.pingAllInFlight && progress) {
+      $("pingAllBtn").textContent = progress.currentName
+        ? "Проверяем " + Math.min(progress.total, progress.completed + 1) + "/" + progress.total + "..."
+        : "Готовим проверку...";
+      $("pingAllBtn").setAttribute("aria-busy", "true");
+    } else {
+      $("pingAllBtn").textContent = progress && progress.finished ? "Проверить снова" : "Проверить все";
+      $("pingAllBtn").setAttribute("aria-busy", "false");
+    }
   }
   if ($("openCreateBtn")) {
     $("openCreateBtn").disabled = busy;
@@ -557,6 +568,7 @@ function setSaveInFlight(value) {
   renderDirtyNotice();
   renderSummary();
   renderProfilesTable();
+  renderPingProgress();
   renderDnsBulkControls();
   renderDnsRoutesTable();
   renderProxyRuntimeTable();
@@ -4771,6 +4783,47 @@ function refreshProbeDependentViews(profileId) {
   }
 }
 
+function renderPingProgress() {
+  const panel = $("pingProgress");
+  if (!panel) {
+    return;
+  }
+  const progress = state.pingAllProgress;
+  panel.hidden = !progress;
+  if (!progress) {
+    return;
+  }
+
+  const total = Math.max(0, Number(progress.total || 0));
+  const completed = Math.min(total, Math.max(0, Number(progress.completed || 0)));
+  const percent = total ? Math.round((completed / total) * 100) : 100;
+  const active = Boolean(state.pingAllInFlight);
+  const title = $("pingProgressTitle");
+  const detail = $("pingProgressDetail");
+  const percentNode = $("pingProgressPercent");
+  const bar = $("pingProgressBar");
+
+  if (title) {
+    title.textContent = active
+      ? "Проверяем " + Math.min(total, completed + 1) + " из " + total
+      : "Проверка завершена";
+  }
+  if (detail) {
+    detail.textContent = active
+      ? progress.currentName
+        ? "Сейчас: " + progress.currentName
+        : "Подготавливаем проверку..."
+      : "Работают: " + progress.okCount + ", проблемы: " + progress.issueCount + ".";
+  }
+  if (percentNode) {
+    percentNode.textContent = percent + "%";
+  }
+  if (bar) {
+    bar.style.width = percent + "%";
+  }
+  panel.classList.toggle("is-running", active);
+}
+
 function parseProbeMilliseconds(value) {
   if (value === "" || value === null || typeof value === "undefined") {
     return null;
@@ -4901,16 +4954,27 @@ async function pingAllProfiles() {
   if (state.pingAllInFlight) {
     return;
   }
+  const targets = getProfiles().filter((profile) => profile.enabled && profile.server.address);
   state.pingAllInFlight = true;
+  state.pingAllProgress = {
+    total: targets.length,
+    completed: 0,
+    currentName: "",
+    okCount: 0,
+    issueCount: 0,
+    finished: false,
+  };
   clearBanner();
+  renderPingProgress();
+  updateBusyControls();
   let okCount = 0;
   let issueCount = 0;
 
   try {
-    for (const profile of getProfiles()) {
-      if (!profile.enabled || !profile.server.address) {
-        continue;
-      }
+    for (const profile of targets) {
+      state.pingAllProgress.currentName = profile.name;
+      renderPingProgress();
+      updateBusyControls();
       try {
         await pingProfile(profile);
         const probe = state.probeResults[profile.id];
@@ -4924,6 +4988,10 @@ async function pingAllProfiles() {
         setProbeResult(profile.id, "bad", "Ошибка проверки", error.message, null);
         refreshProbeDependentViews(profile.id);
       }
+      state.pingAllProgress.completed += 1;
+      state.pingAllProgress.okCount = okCount;
+      state.pingAllProgress.issueCount = issueCount;
+      renderPingProgress();
     }
     showBanner(
       issueCount ? "warn" : "ok",
@@ -4931,6 +4999,12 @@ async function pingAllProfiles() {
     );
   } finally {
     state.pingAllInFlight = false;
+    state.pingAllProgress.currentName = "";
+    state.pingAllProgress.okCount = okCount;
+    state.pingAllProgress.issueCount = issueCount;
+    state.pingAllProgress.finished = true;
+    renderPingProgress();
+    updateBusyControls();
   }
 }
 
