@@ -30,6 +30,13 @@ index-file.names = ( "index.html" )
 setenv.add-environment = (
   "PATH" => "$PATH"
 )
+\$HTTP["url"] =~ "^/$|[.](html|css|js|json)$" {
+  setenv.add-response-header = (
+    "Cache-Control" => "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma" => "no-cache",
+    "Expires" => "0"
+  )
+}
 cgi.assign = ( ".cgi" => "" )
 mimetype.assign = (
   ".html" => "text/html",
