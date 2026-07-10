@@ -4840,14 +4840,15 @@ function pingProfile(profile) {
     if (tcpMs !== null) details.push("TCP " + Math.round(tcpMs) + " мс");
     if (data.loss) details.push("loss " + data.loss);
     if (data.tcpMessage) details.push(data.tcpMessage);
-    if (proxyMs !== null) details.push("SOCKS " + Math.round(proxyMs) + " мс");
+    if (proxyMs !== null) details.push("внешний запрос через SOCKS " + Math.round(proxyMs) + " мс");
     if (data.egressIp) details.push("внешний IP " + data.egressIp);
     if (data.proxyMessage) details.push(data.proxyMessage);
     if (data.message) details.push(data.message);
     if (data.error) details.push(data.error);
 
     if (data.proxyAttempted && data.proxyOk) {
-      setProbeResult(profile.id, "ok", "Профиль работает", details.join(" | "), proxyMs);
+      const serverDelayMs = icmpMs !== null ? icmpMs : tcpMs;
+      setProbeResult(profile.id, "ok", "Профиль работает", details.join(" | "), serverDelayMs);
     } else if (data.proxyAttempted) {
       const kind = data.tcpOk || data.ip ? "warn" : "bad";
       const text = data.tcpOk ? "TCP доступен, SOCKS не работает" : "Профиль не работает";
