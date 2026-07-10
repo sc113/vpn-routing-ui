@@ -4847,8 +4847,7 @@ function pingProfile(profile) {
     if (data.error) details.push(data.error);
 
     if (data.proxyAttempted && data.proxyOk) {
-      const serverDelayMs = icmpMs !== null ? icmpMs : tcpMs;
-      setProbeResult(profile.id, "ok", "Профиль работает", details.join(" | "), serverDelayMs);
+      setProbeResult(profile.id, "ok", "Профиль работает", details.join(" | "), tcpMs);
     } else if (data.proxyAttempted) {
       const kind = data.tcpOk || data.ip ? "warn" : "bad";
       const text = data.tcpOk ? "TCP доступен, SOCKS не работает" : "Профиль не работает";
