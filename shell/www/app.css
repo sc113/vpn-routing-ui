@@ -267,24 +267,62 @@ a {
   justify-self: end;
 }
 
-.ui-update-info {
+.update-line-status {
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
   line-height: 1.35;
-  max-width: 220px;
 }
 
-.ui-update-info.ok {
+.update-line-status.ok {
   color: #62d89d;
 }
 
-.ui-update-info.available {
+.update-line-status.available {
   color: #f7c86e;
 }
 
-.ui-update-info.error {
+.update-line-status.error {
   color: #ff8f8f;
+}
+
+.updates-panel .toolbar {
+  margin-bottom: 8px;
+}
+
+.update-list {
+  border-top: 1px solid var(--line);
+}
+
+.update-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  min-height: 72px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.update-line-main {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.update-line-main strong {
+  font-size: 15px;
+}
+
+.update-line-actions {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(148px, auto);
+  gap: 8px;
+}
+
+.update-line-actions button {
+  min-height: 40px;
 }
 
 .panel {
@@ -2536,9 +2574,19 @@ textarea {
     justify-self: start;
   }
 
-  .ui-update-info {
-    grid-column: 1 / -1;
-    max-width: none;
+  .update-line {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .update-line-actions {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 148px), 1fr));
+    width: 100%;
+  }
+
+  .update-line-actions button {
+    width: 100%;
   }
 
   .engine-row {

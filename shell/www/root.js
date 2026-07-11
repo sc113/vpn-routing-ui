@@ -4,6 +4,7 @@
   const statusRows = document.getElementById("statusRows");
   const reloadBtn = document.getElementById("reloadBtn");
   const checkUpdatesBtn = document.getElementById("checkUpdatesBtn");
+  const engineUpdateStatusEl = document.getElementById("engineUpdateInfo");
   const checkUiUpdateBtn = document.getElementById("checkUiUpdateBtn");
   const updateUiBtn = document.getElementById("updateUiBtn");
   const uiUpdateInfo = document.getElementById("uiUpdateInfo");
@@ -19,6 +20,7 @@
     systemHealthError: "",
     packageUpdates: null,
     packageUpdatesLoading: false,
+    packageUpdatesError: "",
     uiUpdate: null,
     uiUpdateLoading: false,
     uiUpdateError: "",
@@ -330,7 +332,7 @@
       reloadBtn.disabled = disabled;
     }
     if (checkUpdatesBtn) {
-      checkUpdatesBtn.disabled = disabled;
+      checkUpdatesBtn.disabled = disabled || state.packageUpdatesLoading;
     }
     renderUiUpdateControls();
   }
@@ -357,7 +359,7 @@
         text = String(update.message || "Статус UI получен.");
         kind = updateAvailable ? "available" : "ok";
       }
-      uiUpdateInfo.className = "ui-update-info" + (kind ? " " + kind : "");
+      uiUpdateInfo.className = "update-line-status" + (kind ? " " + kind : "");
       uiUpdateInfo.textContent = text;
     }
 
@@ -449,6 +451,45 @@
   function engineUpdateInfo(engine) {
     const key = engine === "singbox" ? "singbox" : "xray";
     return state.packageUpdates && state.packageUpdates[key] ? state.packageUpdates[key] : null;
+  }
+
+  function renderPackageUpdateSummary() {
+    if (!engineUpdateStatusEl) {
+      return;
+    }
+
+    let text = "Версии не проверены.";
+    let kind = "";
+    if (state.packageUpdatesLoading) {
+      text = "Проверяем версии...";
+    } else if (state.packageUpdatesError) {
+      text = "Не удалось проверить версии.";
+      kind = "error";
+    } else if (state.packageUpdates) {
+      const available = [
+        ["Xray", state.packageUpdates.xray],
+        ["sing-box", state.packageUpdates.singbox],
+      ]
+        .filter((entry) => {
+          const info = entry[1];
+          return info && info.opkgHasUpdate && !info.opkgPrerelease && !info.compatBlocked;
+        })
+        .map((entry) => entry[0]);
+      if (available.length) {
+        text = "Доступно обновление: " + available.join(", ") + ".";
+        kind = "available";
+      } else {
+        text = "Доступных обновлений нет.";
+        kind = "ok";
+      }
+    }
+
+    engineUpdateStatusEl.className = "update-line-status" + (kind ? " " + kind : "");
+    engineUpdateStatusEl.textContent = text;
+    if (checkUpdatesBtn) {
+      checkUpdatesBtn.disabled = Boolean(state.actionBusy) || state.packageUpdatesLoading;
+      checkUpdatesBtn.textContent = state.packageUpdatesLoading ? "Проверяем..." : "Проверить версии";
+    }
   }
 
   function renderUpdateChip(engine) {
@@ -958,6 +999,7 @@
   }
 
   function renderEngineRows() {
+    renderPackageUpdateSummary();
     if (!statusRows || !state.status) {
       return;
     }
@@ -1009,9 +1051,10 @@
   async function loadPackageUpdates(refresh, options) {
     const opts = options || {};
     state.packageUpdatesLoading = true;
+    state.packageUpdatesError = "";
     renderEngineRows();
     if (!opts.quiet) {
-      showBanner("warn", refresh ? "Проверяем обновления через Entware и upstream..." : "Догружаем статус обновлений...");
+      showBanner("warn", refresh ? "Проверяем версии Xray и sing-box..." : "Загружаем версии Xray и sing-box...");
     }
     try {
       const data = await fetchJson(`/cgi-bin/package-updates.cgi?refresh=${refresh ? "1" : "0"}`, {
@@ -1019,16 +1062,18 @@
       });
       state.packageUpdates = data;
       state.packageUpdatesLoading = false;
+      state.packageUpdatesError = "";
       renderEngineRows();
       if (!opts.quiet) {
         if (refresh && data.refreshOk === false) {
           showBanner("warn", "Индексы Entware перечитать не удалось полностью, но текущий статус обновлений всё равно показан.");
         } else {
-          showBanner("ok", refresh ? "Статус обновлений перечитан." : "Статус обновлений загружен.");
+          showBanner("ok", refresh ? "Версии Xray и sing-box проверены." : "Версии Xray и sing-box загружены.");
         }
       }
     } catch (error) {
       state.packageUpdatesLoading = false;
+      state.packageUpdatesError = error.message;
       renderEngineRows();
       if (!opts.quiet) {
         showBanner("error", "Не удалось проверить обновления: " + error.message);

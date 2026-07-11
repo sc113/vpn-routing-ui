@@ -55,13 +55,38 @@
         </div>
         <div class="toolbar-right">
           <button id="reloadBtn" class="refresh-button" type="button" aria-label="Перечитать состояние" title="Перечитать состояние">♻️</button>
-          <button id="checkUpdatesBtn" class="secondary">Проверить обновления</button>
-          <span id="uiUpdateInfo" class="ui-update-info" aria-live="polite">Проверяем UI...</span>
-          <button id="checkUiUpdateBtn" class="secondary" type="button">Проверить UI</button>
-          <button id="updateUiBtn" class="info" type="button" disabled>Обновить UI</button>
         </div>
       </div>
       <div id="quickGrid" class="grid two quick-grid"></div>
+    </section>
+
+    <section class="panel updates-panel">
+      <div class="toolbar">
+        <div>
+          <h2>Обновления</h2>
+        </div>
+      </div>
+      <div class="update-list">
+        <div class="update-line">
+          <div class="update-line-main">
+            <strong>VPN Routing UI</strong>
+            <span id="uiUpdateInfo" class="update-line-status" aria-live="polite">Проверяем версию...</span>
+          </div>
+          <div class="update-line-actions">
+            <button id="checkUiUpdateBtn" class="secondary" type="button">Проверить версию</button>
+            <button id="updateUiBtn" class="info" type="button" disabled>Обновить UI</button>
+          </div>
+        </div>
+        <div class="update-line">
+          <div class="update-line-main">
+            <strong>Xray и sing-box</strong>
+            <span id="engineUpdateInfo" class="update-line-status" aria-live="polite">Версии не проверены.</span>
+          </div>
+          <div class="update-line-actions">
+            <button id="checkUpdatesBtn" class="secondary" type="button">Проверить версии</button>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section class="panel">
