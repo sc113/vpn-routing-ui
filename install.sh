@@ -34,6 +34,33 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+is_busybox_wget() {
+  command -v wget >/dev/null 2>&1 || return 1
+  wget --help 2>&1 | grep -q 'BusyBox'
+}
+
+ensure_https_client() {
+  if command -v curl >/dev/null 2>&1; then
+    return
+  fi
+
+  if command -v wget >/dev/null 2>&1 && ! is_busybox_wget; then
+    return
+  fi
+
+  if [ "${VPN_ROUTING_UI_INSTALL_DEPS:-1}" = "0" ]; then
+    fail "для GitHub и автообновления нужен curl или wget-ssl; BusyBox wget не подходит. Установи: opkg update && opkg install ca-bundle curl"
+  fi
+
+  if command -v opkg >/dev/null 2>&1; then
+    log "Надёжный HTTPS-клиент не найден, устанавливаем curl для GitHub и автообновления ..."
+    opkg update
+    opkg install ca-bundle curl
+  fi
+
+  command -v curl >/dev/null 2>&1 || fail "не удалось установить curl. Выполни: opkg update && opkg install ca-bundle curl"
+}
+
 download_to_file() {
   url="$1"
   dst="$2"
@@ -43,12 +70,12 @@ download_to_file() {
     return
   fi
 
-  if command -v wget >/dev/null 2>&1; then
+  if command -v wget >/dev/null 2>&1 && ! is_busybox_wget; then
     wget -O "$dst" "$url"
     return
   fi
 
-  fail "нужен curl или wget. Установи, например: opkg update && opkg install wget-ssl ca-bundle"
+  fail "нужен curl или wget-ssl; BusyBox wget не подходит для GitHub HTTPS. Установи: opkg update && opkg install ca-bundle curl"
 }
 
 is_commit() {
@@ -64,7 +91,7 @@ resolve_remote_commit() {
 
   if command -v curl >/dev/null 2>&1; then
     response=$(curl -fsSL --connect-timeout 6 --max-time 20 "$api_url" 2>/dev/null || true)
-  elif command -v wget >/dev/null 2>&1; then
+  elif command -v wget >/dev/null 2>&1 && ! is_busybox_wget; then
     response=$(wget -qO- "$api_url" 2>/dev/null || true)
   fi
 
@@ -221,6 +248,7 @@ fi
 
 log "[1/7] Проверяем Entware ..."
 [ -d /opt ] || fail "Entware не найдено: каталог /opt отсутствует"
+ensure_https_client
 detect_source
 ensure_web_server
 
@@ -254,4 +282,4 @@ log "Открой: http://ROUTER_IP:92/"
 log "Обычно для Keenetic: http://192.168.1.1:92/"
 log ""
 log "Быстрая переустановка/обновление:"
-log "  wget -qO- $RAW_BASE/install.sh | sh"
+log "  curl -fsSL $RAW_BASE/install.sh | sh"

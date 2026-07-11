@@ -69,18 +69,44 @@ installed_commit() {
   awk -F'|' '$1 == "ui" { print $4; exit }' "$VERSION_FILE" 2>/dev/null
 }
 
+is_busybox_wget() {
+  command -v wget >/dev/null 2>&1 || return 1
+  wget --help 2>&1 | grep -q 'BusyBox'
+}
+
 fetch_remote_commit() {
   api_url="https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/commits/$REPO_REF"
   response=""
+  FETCHED_COMMIT=""
+  FETCH_ERROR=""
+
   if command -v curl >/dev/null 2>&1; then
-    response=$(curl -fsSL --connect-timeout 6 --max-time 20 "$api_url" 2>/dev/null || true)
+    if ! response=$(curl -fsSL --connect-timeout 6 --max-time 20 "$api_url" 2>/dev/null); then
+      FETCH_ERROR="curl не смог обратиться к GitHub. Проверьте интернет, DNS и пакет ca-bundle."
+      return 1
+    fi
   elif command -v wget >/dev/null 2>&1; then
-    response=$(wget -qO- "$api_url" 2>/dev/null || true)
+    if is_busybox_wget; then
+      FETCH_ERROR="Для проверки обновлений нужен curl или wget-ssl; BusyBox wget не подходит. Выполните: opkg update && opkg install ca-bundle curl"
+      return 1
+    fi
+    if ! response=$(wget -qO- "$api_url" 2>/dev/null); then
+      FETCH_ERROR="wget-ssl не смог обратиться к GitHub. Проверьте интернет, DNS и сертификаты."
+      return 1
+    fi
+  else
+    FETCH_ERROR="На роутере нет HTTPS-клиента для GitHub. Выполните: opkg update && opkg install ca-bundle curl"
+    return 1
   fi
+
   candidate=$(printf '%s\n' "$response" | sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([0-9A-Fa-f]*\)".*/\1/p' | head -n 1)
   if is_commit "$candidate"; then
-    printf '%s' "$candidate"
+    FETCHED_COMMIT="$candidate"
+    return 0
   fi
+
+  FETCH_ERROR="GitHub ответил, но SHA версии UI не найден. Проверьте имя репозитория и ветку обновления."
+  return 1
 }
 
 short_commit() {
@@ -89,9 +115,11 @@ short_commit() {
 
 print_version_check() {
   installed=$(installed_commit)
-  latest=$(fetch_remote_commit)
+  fetch_remote_commit || true
+  latest="$FETCHED_COMMIT"
   if ! is_commit "$latest"; then
-    printf '{"ok":false,"error":"Не удалось получить версию UI из GitHub"}'
+    error_message="${FETCH_ERROR:-Не удалось получить версию UI из GitHub}"
+    printf '{"ok":false,"error":"%s"}' "$(json_escape "$error_message")"
     return
   fi
 

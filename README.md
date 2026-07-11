@@ -43,10 +43,12 @@
 
 `Proxy client` обязателен для `ProxyN`. Если его нет, Keenetic не принимает команды вида `interface Proxy0`, DNS-маршруты не смогут назначаться в профиль, а UI покажет ошибку про отсутствующий компонент `Proxy client`.
 
-Выполнить на роутере от `root`:
+Рекомендуемый вариант установки на роутере от `root`:
 
 ```sh
-wget -qO- https://raw.githubusercontent.com/sc113/vpn-routing-ui/main/install.sh | sh
+opkg update
+opkg install ca-bundle curl
+curl -fsSL https://raw.githubusercontent.com/sc113/vpn-routing-ui/main/install.sh | sh
 ```
 
 Потом открыть:
@@ -57,7 +59,7 @@ http://192.168.1.1:92/
 
 Та же команда обновляет уже установленный интерфейс.
 
-Если на роутере ещё нет HTTPS/cert-пакетов для скачивания с GitHub:
+Альтернатива через полноценный `wget-ssl`:
 
 ```sh
 opkg update
@@ -65,22 +67,21 @@ opkg install ca-bundle wget-ssl
 wget -qO- https://raw.githubusercontent.com/sc113/vpn-routing-ui/main/install.sh | sh
 ```
 
-Вариант через `curl`:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/sc113/vpn-routing-ui/main/install.sh | sh
-```
+`wget`, встроенный в Entware BusyBox, не считается HTTPS-клиентом для автообновления: на некоторых моделях Keenetic он падает при TLS-запросах к GitHub. Используйте `curl` (рекомендуется) или отдельный пакет `wget-ssl`.
 
 ## Требования
 
 - Keenetic OS с компонентами `SSH server`, `Proxy client`, `OPKG`.
 - Entware в `/opt`.
+- `ca-bundle` и надёжный HTTPS-клиент для GitHub: `curl` (рекомендуется) или `wget-ssl`. Обычного BusyBox `wget` недостаточно.
 - лёгкий web-server в `/opt`: предпочтительно `uhttpd`; если его нет в Entware-репозитории, installer использует fallback `lighttpd + mod_cgi + mod_setenv`.
 - Для работы VPN-профилей:
   - `xray`
   - и/или `sing-box-go`
 
 Installer попробует поставить отсутствующий web-server через `opkg`. VPN-движки можно поставить позже из самого интерфейса.
+
+При локальном запуске installer также проверяет HTTPS-клиент и, если разрешена автоматическая установка зависимостей, ставит `ca-bundle + curl`. Это нужно для проверки версии и автообновления UI по кнопке.
 
 ### Компоненты KeeneticOS
 
@@ -211,6 +212,22 @@ netstat -lnt | grep ':208'
 ndmc -c 'show running-config' | grep '^interface Proxy'
 ndmc -c 'show running-config' | grep '^route object-group domain-list'
 ```
+
+Если кнопка обновления сообщает, что не удалось получить версию UI из GitHub, сначала проверьте HTTPS-клиент:
+
+```sh
+curl --version
+curl -fsSL https://api.github.com/repos/sc113/vpn-routing-ui/commits/main >/dev/null
+```
+
+Если `curl` отсутствует или команда `wget` указывает на BusyBox, установите рекомендуемые пакеты:
+
+```sh
+opkg update
+opkg install ca-bundle curl
+```
+
+После этого повторите проверку обновления в UI. Новая версия интерфейса также выводит эту команду прямо в сообщении об ошибке.
 
 CPU в виджете состояния берётся из Keenetic control-plane (`ndmc -c "show system"`, поле `cpuload`), а не из коротких выборок `top`. Это даёт одинаковую шкалу на mips и aarch64 и ближе к графику штатной прошивки.
 

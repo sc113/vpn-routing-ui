@@ -38,6 +38,11 @@ cleanup() {
   rm -rf "$LOCK_DIR" "$PID_FILE" "$WORK_DIR"
 }
 
+is_busybox_wget() {
+  command -v wget >/dev/null 2>&1 || return 1
+  wget --help 2>&1 | grep -q 'BusyBox'
+}
+
 download_to_file() {
   url="$1"
   destination="$2"
@@ -46,6 +51,7 @@ download_to_file() {
     return $?
   fi
   if command -v wget >/dev/null 2>&1; then
+    is_busybox_wget && return 1
     wget -qO "$destination" "$url"
     return $?
   fi
@@ -66,15 +72,36 @@ installed_commit() {
 fetch_remote_commit() {
   api_url="https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/commits/$REPO_REF"
   response=""
+  FETCHED_COMMIT=""
+  FETCH_ERROR=""
+
   if command -v curl >/dev/null 2>&1; then
-    response=$(curl -fsSL --connect-timeout 6 --max-time 20 "$api_url" 2>/dev/null || true)
+    if ! response=$(curl -fsSL --connect-timeout 6 --max-time 20 "$api_url" 2>/dev/null); then
+      FETCH_ERROR="curl не смог обратиться к GitHub. Проверьте интернет, DNS и пакет ca-bundle."
+      return 1
+    fi
   elif command -v wget >/dev/null 2>&1; then
-    response=$(wget -qO- "$api_url" 2>/dev/null || true)
+    if is_busybox_wget; then
+      FETCH_ERROR="Для автообновления нужен curl или wget-ssl; BusyBox wget не подходит. Выполните: opkg update && opkg install ca-bundle curl"
+      return 1
+    fi
+    if ! response=$(wget -qO- "$api_url" 2>/dev/null); then
+      FETCH_ERROR="wget-ssl не смог обратиться к GitHub. Проверьте интернет, DNS и сертификаты."
+      return 1
+    fi
+  else
+    FETCH_ERROR="На роутере нет HTTPS-клиента для GitHub. Выполните: opkg update && opkg install ca-bundle curl"
+    return 1
   fi
+
   candidate=$(printf '%s\n' "$response" | sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([0-9A-Fa-f]*\)".*/\1/p' | head -n 1)
   if is_commit "$candidate"; then
-    printf '%s' "$candidate"
+    FETCHED_COMMIT="$candidate"
+    return 0
   fi
+
+  FETCH_ERROR="GitHub ответил, но SHA версии UI не найден. Проверьте имя репозитория и ветку обновления."
+  return 1
 }
 
 short_commit() {
@@ -108,9 +135,10 @@ trap cleanup EXIT INT TERM
 write_state "running" "Проверяем версию UI на GitHub." ""
 printf '\n[%s] UI update started\n' "$(date 2>/dev/null || now_epoch)" >> "$LOG_FILE"
 
-REMOTE_COMMIT=$(fetch_remote_commit)
+fetch_remote_commit || true
+REMOTE_COMMIT="$FETCHED_COMMIT"
 if ! is_commit "$REMOTE_COMMIT"; then
-  write_state "failed" "Не удалось получить SHA версии из GitHub." ""
+  write_state "failed" "${FETCH_ERROR:-Не удалось получить SHA версии из GitHub.}" ""
   exit 1
 fi
 
