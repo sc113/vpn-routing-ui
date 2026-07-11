@@ -19,7 +19,7 @@ LOG_FILE="$STATE_DIR/ui-update.log"
 REPO_OWNER="${VPN_ROUTING_UI_REPO_OWNER:-sc113}"
 REPO_NAME="${VPN_ROUTING_UI_REPO_NAME:-vpn-routing-ui}"
 REPO_REF="${VPN_ROUTING_UI_REF:-main}"
-INSTALL_URL="https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/$REPO_REF/install.sh"
+VERSION_FILE="$STATE_DIR/versions.state"
 
 now_epoch() {
   date +%s 2>/dev/null || echo 0
@@ -52,21 +52,73 @@ download_to_file() {
   return 1
 }
 
+is_commit() {
+  case "$1" in
+    ''|*[!0-9A-Fa-f]*) return 1 ;;
+  esac
+  [ "${#1}" -eq 40 ]
+}
+
+installed_commit() {
+  awk -F'|' '$1 == "ui" { print $4; exit }' "$VERSION_FILE" 2>/dev/null
+}
+
+fetch_remote_commit() {
+  api_url="https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/commits/$REPO_REF"
+  response=""
+  if command -v curl >/dev/null 2>&1; then
+    response=$(curl -fsSL --connect-timeout 6 --max-time 20 "$api_url" 2>/dev/null || true)
+  elif command -v wget >/dev/null 2>&1; then
+    response=$(wget -qO- "$api_url" 2>/dev/null || true)
+  fi
+  candidate=$(printf '%s\n' "$response" | sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([0-9A-Fa-f]*\)".*/\1/p' | head -n 1)
+  if is_commit "$candidate"; then
+    printf '%s' "$candidate"
+  fi
+}
+
+short_commit() {
+  printf '%s' "$1" | cut -c1-7
+}
+
 mkdir -p "$STATE_DIR" "$BACKUP_DIR" /opt/tmp
+chmod 700 "$STATE_DIR" "$BACKUP_DIR" 2>/dev/null || true
 
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
   exit 0
 fi
 
-WORK_DIR="/opt/tmp/vpn-routing-ui-update-$$"
+if command -v mktemp >/dev/null 2>&1; then
+  WORK_DIR=$(umask 077; mktemp -d /opt/tmp/vpn-routing-ui-update.XXXXXX)
+else
+  WORK_DIR="/opt/tmp/vpn-routing-ui-update-$$"
+  (umask 077; mkdir "$WORK_DIR") || WORK_DIR=""
+fi
+if [ -z "$WORK_DIR" ] || [ ! -d "$WORK_DIR" ]; then
+  write_state "failed" "Не удалось создать защищённый временный каталог." ""
+  rm -rf "$LOCK_DIR" "$PID_FILE"
+  exit 1
+fi
 INSTALL_FILE="$WORK_DIR/install.sh"
 STAMP=$(date +%Y%m%d-%H%M%S 2>/dev/null || now_epoch)
 BACKUP_PATH="$BACKUP_DIR/ui-$STAMP"
 
 trap cleanup EXIT INT TERM
 
-write_state "running" "Скачиваем обновление из GitHub." ""
+write_state "running" "Проверяем версию UI на GitHub." ""
 printf '\n[%s] UI update started\n' "$(date 2>/dev/null || now_epoch)" >> "$LOG_FILE"
+
+REMOTE_COMMIT=$(fetch_remote_commit)
+if ! is_commit "$REMOTE_COMMIT"; then
+  write_state "failed" "Не удалось получить SHA версии из GitHub." ""
+  exit 1
+fi
+
+CURRENT_COMMIT=$(installed_commit)
+if is_commit "$CURRENT_COMMIT" && [ "$CURRENT_COMMIT" = "$REMOTE_COMMIT" ]; then
+  write_state "success" "UI уже актуален: $(short_commit "$REMOTE_COMMIT")." ""
+  exit 0
+fi
 
 if cp -R "$APP_DIR" "$BACKUP_PATH" >> "$LOG_FILE" 2>&1; then
   :
@@ -74,7 +126,8 @@ else
   BACKUP_PATH=""
 fi
 
-mkdir -p "$WORK_DIR"
+INSTALL_URL="https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/$REMOTE_COMMIT/install.sh"
+write_state "running" "Скачиваем UI $(short_commit "$REMOTE_COMMIT") из GitHub." "$BACKUP_PATH"
 if ! download_to_file "$INSTALL_URL" "$INSTALL_FILE" >> "$LOG_FILE" 2>&1; then
   write_state "failed" "Не удалось скачать installer из GitHub." "$BACKUP_PATH"
   exit 1
@@ -85,9 +138,9 @@ if ! grep -q 'VPN_ROUTING_UI_REPO_OWNER' "$INSTALL_FILE"; then
   exit 1
 fi
 
-write_state "running" "Применяем обновление и перезапускаем UI." "$BACKUP_PATH"
-if sh "$INSTALL_FILE" >> "$LOG_FILE" 2>&1; then
-  write_state "success" "UI обновлён из GitHub." "$BACKUP_PATH"
+write_state "running" "Применяем UI $(short_commit "$REMOTE_COMMIT") и перезапускаем интерфейс." "$BACKUP_PATH"
+if VPN_ROUTING_UI_REF="$REMOTE_COMMIT" VPN_ROUTING_UI_COMMIT="$REMOTE_COMMIT" sh "$INSTALL_FILE" >> "$LOG_FILE" 2>&1; then
+  write_state "success" "UI обновлён до $(short_commit "$REMOTE_COMMIT")." "$BACKUP_PATH"
   exit 0
 fi
 

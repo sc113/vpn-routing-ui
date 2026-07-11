@@ -6,7 +6,7 @@ REPO_OWNER="${VPN_ROUTING_UI_REPO_OWNER:-sc113}"
 REPO_NAME="${VPN_ROUTING_UI_REPO_NAME:-vpn-routing-ui}"
 REPO_REF="${VPN_ROUTING_UI_REF:-main}"
 RAW_BASE="https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/$REPO_REF"
-TARBALL_URL="https://github.com/$REPO_OWNER/$REPO_NAME/archive/$REPO_REF.tar.gz"
+SOURCE_COMMIT="${VPN_ROUTING_UI_COMMIT:-}"
 
 TARGET_ROOT="/opt/share/vpn-routing-ui"
 TARGET_CGI="$TARGET_ROOT/cgi-bin"
@@ -51,6 +51,29 @@ download_to_file() {
   fail "нужен curl или wget. Установи, например: opkg update && opkg install wget-ssl ca-bundle"
 }
 
+is_commit() {
+  case "$1" in
+    ''|*[!0-9A-Fa-f]*) return 1 ;;
+  esac
+  [ "${#1}" -eq 40 ]
+}
+
+resolve_remote_commit() {
+  api_url="https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/commits/$REPO_REF"
+  response=""
+
+  if command -v curl >/dev/null 2>&1; then
+    response=$(curl -fsSL --connect-timeout 6 --max-time 20 "$api_url" 2>/dev/null || true)
+  elif command -v wget >/dev/null 2>&1; then
+    response=$(wget -qO- "$api_url" 2>/dev/null || true)
+  fi
+
+  candidate=$(printf '%s\n' "$response" | sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([0-9A-Fa-f]*\)".*/\1/p' | head -n 1)
+  if is_commit "$candidate"; then
+    printf '%s' "$candidate"
+  fi
+}
+
 ensure_web_server() {
   if [ -x /opt/sbin/uhttpd ]; then
     return
@@ -88,12 +111,28 @@ script_dir() {
 prepare_remote_source() {
   tmp_base="/opt/tmp"
   [ -d "$tmp_base" ] || tmp_base="/tmp"
-  WORK_DIR="$tmp_base/vpn-routing-ui-install-$$"
+  if command -v mktemp >/dev/null 2>&1; then
+    WORK_DIR=$(umask 077; mktemp -d "$tmp_base/vpn-routing-ui-install.XXXXXX") || fail "не удалось создать временный каталог"
+  else
+    WORK_DIR="$tmp_base/vpn-routing-ui-install-$$"
+    (umask 077; mkdir "$WORK_DIR") || fail "не удалось создать временный каталог"
+  fi
   archive="$WORK_DIR/source.tar.gz"
+  archive_ref="$REPO_REF"
 
-  mkdir -p "$WORK_DIR"
-  log "Скачиваем $REPO_OWNER/$REPO_NAME@$REPO_REF ..."
-  download_to_file "$TARBALL_URL" "$archive"
+  if ! is_commit "$SOURCE_COMMIT"; then
+    if is_commit "$REPO_REF"; then
+      SOURCE_COMMIT="$REPO_REF"
+    else
+      SOURCE_COMMIT=$(resolve_remote_commit)
+    fi
+  fi
+  if is_commit "$SOURCE_COMMIT"; then
+    archive_ref="$SOURCE_COMMIT"
+  fi
+
+  log "Скачиваем $REPO_OWNER/$REPO_NAME@$archive_ref ..."
+  download_to_file "https://github.com/$REPO_OWNER/$REPO_NAME/archive/$archive_ref.tar.gz" "$archive"
 
   log "Распаковываем архив ..."
   tar -xzf "$archive" -C "$WORK_DIR"
@@ -168,7 +207,11 @@ mark_ui_updated() {
   else
     : > "$tmp"
   fi
-  printf 'ui|%s|%s\n' "$now_epoch" "$now_iso" >> "$tmp"
+  ui_commit=""
+  if is_commit "$SOURCE_COMMIT"; then
+    ui_commit="$SOURCE_COMMIT"
+  fi
+  printf 'ui|%s|%s|%s\n' "$now_epoch" "$now_iso" "$ui_commit" >> "$tmp"
   mv "$tmp" "$VERSION_STATE"
 }
 
@@ -186,6 +229,7 @@ log "[2/7] Останавливаем web-init ..."
 
 log "[3/7] Создаём каталоги ..."
 mkdir -p "$TARGET_ROOT" "$TARGET_CGI" "$TARGET_BIN" "$TARGET_STATE" "$TARGET_RUNTIME" "$TARGET_INIT"
+chmod 700 "$TARGET_STATE" "$TARGET_RUNTIME"
 
 log "[4/7] Готовим чистую структуру VPN Routing UI ..."
 

@@ -267,6 +267,26 @@ a {
   justify-self: end;
 }
 
+.ui-update-info {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+  max-width: 220px;
+}
+
+.ui-update-info.ok {
+  color: #62d89d;
+}
+
+.ui-update-info.available {
+  color: #f7c86e;
+}
+
+.ui-update-info.error {
+  color: #ff8f8f;
+}
+
 .panel {
   min-width: 0;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0)),
@@ -2514,6 +2534,11 @@ textarea {
 
   .toolbar-right .refresh-button {
     justify-self: start;
+  }
+
+  .ui-update-info {
+    grid-column: 1 / -1;
+    max-width: none;
   }
 
   .engine-row {

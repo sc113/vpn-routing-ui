@@ -58,6 +58,61 @@ print_state() {
   printf '}'
 }
 
+is_commit() {
+  case "$1" in
+    ''|*[!0-9A-Fa-f]*) return 1 ;;
+  esac
+  [ "${#1}" -eq 40 ]
+}
+
+installed_commit() {
+  awk -F'|' '$1 == "ui" { print $4; exit }' "$VERSION_FILE" 2>/dev/null
+}
+
+fetch_remote_commit() {
+  api_url="https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/commits/$REPO_REF"
+  response=""
+  if command -v curl >/dev/null 2>&1; then
+    response=$(curl -fsSL --connect-timeout 6 --max-time 20 "$api_url" 2>/dev/null || true)
+  elif command -v wget >/dev/null 2>&1; then
+    response=$(wget -qO- "$api_url" 2>/dev/null || true)
+  fi
+  candidate=$(printf '%s\n' "$response" | sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([0-9A-Fa-f]*\)".*/\1/p' | head -n 1)
+  if is_commit "$candidate"; then
+    printf '%s' "$candidate"
+  fi
+}
+
+short_commit() {
+  printf '%s' "$1" | cut -c1-7
+}
+
+print_version_check() {
+  installed=$(installed_commit)
+  latest=$(fetch_remote_commit)
+  if ! is_commit "$latest"; then
+    printf '{"ok":false,"error":"Не удалось получить версию UI из GitHub"}'
+    return
+  fi
+
+  update_available=1
+  message="Доступно обновление UI: $(short_commit "$latest")."
+  if is_commit "$installed" && [ "$installed" = "$latest" ]; then
+    update_available=0
+    message="UI актуален: $(short_commit "$installed")."
+  elif ! is_commit "$installed"; then
+    message="У установленного UI нет SHA. Одно обновление привяжет его к версии GitHub."
+  fi
+
+  printf '{'
+  printf '"ok":true,'
+  printf '"installedRevision":"%s",' "$(json_escape "$installed")"
+  printf '"latestRevision":"%s",' "$(json_escape "$latest")"
+  printf '"updateAvailable":%s,' "$(bool_json "$update_available")"
+  printf '"message":"%s"' "$(json_escape "$message")"
+  printf '}'
+}
+
 echo "Content-Type: application/json"
 echo "Cache-Control: no-store"
 echo ""
@@ -72,11 +127,22 @@ PID_FILE="$STATE_DIR/ui-update.pid"
 LOCK_DIR="$STATE_DIR/ui-update.lock"
 LOG_FILE="$STATE_DIR/ui-update.log"
 UPDATE_HELPER="${VPN_ROUTING_UI_APP_DIR:-/opt/share/vpn-routing-ui}/bin/ui-update.sh"
+VERSION_FILE="$STATE_DIR/versions.state"
+REPO_OWNER="${VPN_ROUTING_UI_REPO_OWNER:-sc113}"
+REPO_NAME="${VPN_ROUTING_UI_REPO_NAME:-vpn-routing-ui}"
+REPO_REF="${VPN_ROUTING_UI_REF:-main}"
 ACTION=$(query_param action)
+
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR" 2>/dev/null || true
 
 case "$ACTION" in
   ''|status)
     print_state
+    exit 0
+    ;;
+  check)
+    print_version_check
     exit 0
     ;;
   start)

@@ -54,7 +54,9 @@
         <div class="toolbar-right">
           <button id="reloadBtn" class="refresh-button" type="button" aria-label="Перечитать состояние" title="Перечитать состояние">♻️</button>
           <button id="checkUpdatesBtn" class="secondary">Проверить обновления</button>
-          <button id="updateUiBtn" class="info" type="button">Обновить UI из GitHub</button>
+          <span id="uiUpdateInfo" class="ui-update-info" aria-live="polite">Проверяем UI...</span>
+          <button id="checkUiUpdateBtn" class="secondary" type="button">Проверить UI</button>
+          <button id="updateUiBtn" class="info" type="button" disabled>Обновить UI</button>
         </div>
       </div>
       <div id="quickGrid" class="grid two quick-grid"></div>
