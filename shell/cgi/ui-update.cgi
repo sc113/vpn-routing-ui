@@ -81,7 +81,7 @@ fetch_remote_commit() {
   FETCH_ERROR=""
 
   if command -v curl >/dev/null 2>&1; then
-    if ! response=$(curl -fsSL --connect-timeout 6 --max-time 20 "$api_url" 2>/dev/null); then
+    if ! response=$(curl -fsSL --connect-timeout 6 --max-time 25 --retry 1 --retry-delay 1 --retry-connrefused "$api_url" 2>/dev/null); then
       FETCH_ERROR="curl не смог обратиться к GitHub. Проверьте интернет, DNS и пакет ca-bundle."
       return 1
     fi

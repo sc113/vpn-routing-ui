@@ -46,15 +46,29 @@ is_busybox_wget() {
 download_to_file() {
   url="$1"
   destination="$2"
+  DOWNLOAD_ERROR=""
+
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL --max-time 90 "$url" -o "$destination"
-    return $?
+    if curl -fsSL --connect-timeout 10 --max-time 120 --retry 2 --retry-delay 2 --retry-connrefused --retry-max-time 120 "$url" -o "$destination"; then
+      return 0
+    fi
+    DOWNLOAD_ERROR="curl не смог скачать installer с GitHub после повторных попыток. Проверьте интернет, DNS и доступ к raw.githubusercontent.com."
+    return 1
   fi
+
   if command -v wget >/dev/null 2>&1; then
-    is_busybox_wget && return 1
-    wget -qO "$destination" "$url"
-    return $?
+    if is_busybox_wget; then
+      DOWNLOAD_ERROR="Для автообновления нужен curl или wget-ssl; BusyBox wget не подходит. Выполните: opkg update && opkg install ca-bundle curl"
+      return 1
+    fi
+    if wget -q -T 30 -t 3 -O "$destination" "$url"; then
+      return 0
+    fi
+    DOWNLOAD_ERROR="wget-ssl не смог скачать installer с GitHub после повторных попыток. Проверьте интернет, DNS и сертификаты."
+    return 1
   fi
+
+  DOWNLOAD_ERROR="На роутере нет HTTPS-клиента для GitHub. Выполните: opkg update && opkg install ca-bundle curl"
   return 1
 }
 
@@ -76,7 +90,7 @@ fetch_remote_commit() {
   FETCH_ERROR=""
 
   if command -v curl >/dev/null 2>&1; then
-    if ! response=$(curl -fsSL --connect-timeout 6 --max-time 20 "$api_url" 2>/dev/null); then
+    if ! response=$(curl -fsSL --connect-timeout 6 --max-time 25 --retry 1 --retry-delay 1 --retry-connrefused "$api_url" 2>/dev/null); then
       FETCH_ERROR="curl не смог обратиться к GitHub. Проверьте интернет, DNS и пакет ca-bundle."
       return 1
     fi
@@ -157,7 +171,7 @@ fi
 INSTALL_URL="https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/$REMOTE_COMMIT/install.sh"
 write_state "running" "Скачиваем UI $(short_commit "$REMOTE_COMMIT") из GitHub." "$BACKUP_PATH"
 if ! download_to_file "$INSTALL_URL" "$INSTALL_FILE" >> "$LOG_FILE" 2>&1; then
-  write_state "failed" "Не удалось скачать installer из GitHub." "$BACKUP_PATH"
+  write_state "failed" "${DOWNLOAD_ERROR:-Не удалось скачать installer из GitHub.}" "$BACKUP_PATH"
   exit 1
 fi
 

@@ -66,16 +66,18 @@ download_to_file() {
   dst="$2"
 
   if command -v curl >/dev/null 2>&1; then
-    curl -fL "$url" -o "$dst"
-    return
+    if curl -fL --connect-timeout 10 --max-time 120 --retry 2 --retry-delay 2 --retry-connrefused --retry-max-time 120 "$url" -o "$dst"; then
+      return
+    fi
   fi
 
   if command -v wget >/dev/null 2>&1 && ! is_busybox_wget; then
-    wget -O "$dst" "$url"
-    return
+    if wget -T 30 -t 3 -O "$dst" "$url"; then
+      return
+    fi
   fi
 
-  fail "нужен curl или wget-ssl; BusyBox wget не подходит для GitHub HTTPS. Установи: opkg update && opkg install ca-bundle curl"
+  fail "не удалось скачать файлы с GitHub. Проверь интернет и DNS; для HTTPS установи: opkg update && opkg install ca-bundle curl"
 }
 
 is_commit() {
@@ -90,7 +92,7 @@ resolve_remote_commit() {
   response=""
 
   if command -v curl >/dev/null 2>&1; then
-    response=$(curl -fsSL --connect-timeout 6 --max-time 20 "$api_url" 2>/dev/null || true)
+    response=$(curl -fsSL --connect-timeout 6 --max-time 25 --retry 1 --retry-delay 1 --retry-connrefused "$api_url" 2>/dev/null || true)
   elif command -v wget >/dev/null 2>&1 && ! is_busybox_wget; then
     response=$(wget -qO- "$api_url" 2>/dev/null || true)
   fi

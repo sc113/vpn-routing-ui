@@ -229,6 +229,14 @@ opkg install ca-bundle curl
 
 После этого повторите проверку обновления в UI. Новая версия интерфейса также выводит эту команду прямо в сообщении об ошибке.
 
+Updater повторяет временно неудачные соединения с GitHub. Если проверка версии проходит, но скачивание installer всё равно завершается ошибкой, отдельно проверьте raw-хост:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/sc113/vpn-routing-ui/main/install.sh >/dev/null
+```
+
+В сообщении UI будет указано, какой клиент не смог скачать файл и какой хост следует проверить.
+
 CPU в виджете состояния берётся из Keenetic control-plane (`ndmc -c "show system"`, поле `cpuload`), а не из коротких выборок `top`. Это даёт одинаковую шкалу на mips и aarch64 и ближе к графику штатной прошивки.
 
 Дата обновления UI пишется installer-ом в `/opt/etc/vpn-routing-ui/versions.state`. Даты Xray и sing-box берутся из Entware `opkg status` (`Installed-Time`), поэтому показывают время установки или последнего обновления пакета через opkg.
