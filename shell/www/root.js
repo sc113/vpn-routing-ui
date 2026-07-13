@@ -342,6 +342,51 @@
     return /^[0-9a-f]{40}$/i.test(revision) ? revision.slice(0, 7) : "";
   }
 
+  function formatUiVersionDate(timestamp) {
+    const date = timestampToDate(timestamp);
+    if (!date) {
+      return "";
+    }
+    const day = date.toLocaleDateString("ru-RU", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
+    const time = date.toLocaleTimeString("ru-RU", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    return day + " " + time;
+  }
+
+  function installedUiVersionLabel(update) {
+    if (!update) {
+      return "";
+    }
+    const revision = shortRevision(update.installedRevision);
+    const updatedAt = formatUiVersionDate(update.installedAt);
+    return [revision, updatedAt].filter(Boolean).join(" · ");
+  }
+
+  function uiUpdateStatusText(update) {
+    if (!update) {
+      return "Статус UI получен.";
+    }
+    const installed = installedUiVersionLabel(update);
+    const latest = shortRevision(update.latestRevision);
+    if (update.updateAvailable) {
+      if (installed && latest) {
+        return "Установлено: " + installed + ". Доступно: " + latest + ".";
+      }
+      if (latest) {
+        return "Доступно обновление UI: " + latest + ".";
+      }
+    } else if (installed) {
+      return "UI актуален: " + installed + ".";
+    }
+    return String(update.message || "Статус UI получен.");
+  }
+
   function renderUiUpdateControls() {
     const busy = Boolean(state.actionBusy);
     const update = state.uiUpdate;
@@ -356,7 +401,7 @@
         text = "Не удалось проверить UI.";
         kind = "error";
       } else if (update) {
-        text = String(update.message || "Статус UI получен.");
+        text = uiUpdateStatusText(update);
         kind = updateAvailable ? "available" : "ok";
       }
       uiUpdateInfo.className = "update-line-status" + (kind ? " " + kind : "");
@@ -679,7 +724,7 @@
       const data = await fetchJson("/cgi-bin/ui-update.cgi?action=check", { cache: "no-store" });
       state.uiUpdate = data;
       if (!opts.quiet) {
-        showBanner(data.updateAvailable ? "warn" : "ok", data.message || "Версия UI проверена.");
+        showBanner(data.updateAvailable ? "warn" : "ok", uiUpdateStatusText(data));
       }
       return data;
     } catch (error) {

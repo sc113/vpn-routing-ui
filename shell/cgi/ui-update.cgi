@@ -69,6 +69,14 @@ installed_commit() {
   awk -F'|' '$1 == "ui" { print $4; exit }' "$VERSION_FILE" 2>/dev/null
 }
 
+installed_epoch() {
+  awk -F'|' '$1 == "ui" && $2 ~ /^[0-9]+$/ { print $2; exit }' "$VERSION_FILE" 2>/dev/null
+}
+
+installed_iso() {
+  awk -F'|' '$1 == "ui" { print $3; exit }' "$VERSION_FILE" 2>/dev/null
+}
+
 is_busybox_wget() {
   command -v wget >/dev/null 2>&1 || return 1
   wget --help 2>&1 | grep -q 'BusyBox'
@@ -115,6 +123,11 @@ short_commit() {
 
 print_version_check() {
   installed=$(installed_commit)
+  installed_at=$(installed_epoch)
+  installed_at_iso=$(installed_iso)
+  case "$installed_at" in
+    ''|*[!0-9]*) installed_at=0 ;;
+  esac
   fetch_remote_commit || true
   latest="$FETCHED_COMMIT"
   if ! is_commit "$latest"; then
@@ -135,6 +148,8 @@ print_version_check() {
   printf '{'
   printf '"ok":true,'
   printf '"installedRevision":"%s",' "$(json_escape "$installed")"
+  printf '"installedAt":%s,' "$installed_at"
+  printf '"installedAtIso":"%s",' "$(json_escape "$installed_at_iso")"
   printf '"latestRevision":"%s",' "$(json_escape "$latest")"
   printf '"updateAvailable":%s,' "$(bool_json "$update_available")"
   printf '"message":"%s"' "$(json_escape "$message")"
