@@ -58,6 +58,7 @@ const state = {
   clientPoliciesError: "",
   clientPoliciesLoaded: false,
   clientPolicyBusyMac: "",
+  clientPolicyPendingTargets: {},
   clientHosts: [],
   clientPolicies: [],
   clientAssignments: [],
@@ -3875,6 +3876,13 @@ function renderClientPolicies() {
       const assignmentPolicyId = assignmentMap.get(host.mac) || "";
       const policy = assignmentPolicyId ? policyMap.get(assignmentPolicyId) : null;
       const currentProxyId = policy && policy.proxyId ? policy.proxyId : "";
+      const hasPendingTarget = Object.prototype.hasOwnProperty.call(
+        state.clientPolicyPendingTargets || {},
+        host.mac
+      );
+      const displayedProxyId = hasPendingTarget
+        ? normalizeRouterProxyId(state.clientPolicyPendingTargets[host.mac])
+        : currentProxyId;
       const isManaged = Boolean(policy && policy.managed && currentProxyId);
       const isForeign = Boolean(assignmentPolicyId && !isManaged);
       const rowKey = host.mac.replaceAll(":", "-");
@@ -3884,8 +3892,8 @@ function renderClientPolicies() {
           state.vpnRefreshInFlight ||
           state.clientPolicyBusyMac === host.mac
       );
-      const selectedNeedle = `value="${escapeHtml(currentProxyId)}"`;
-      const renderedOptions = currentProxyId
+      const selectedNeedle = `value="${escapeHtml(displayedProxyId)}"`;
+      const renderedOptions = displayedProxyId
         ? optionsHtml.replace(selectedNeedle, selectedNeedle + " selected")
         : optionsHtml.replace('value=""', 'value="" selected');
 
@@ -3962,6 +3970,7 @@ function applyClientPolicy(mac) {
     proxyId;
   const payload = ["H", normalizedMac, proxyId, utf8ToBase64(proxyName || "")].join("|");
 
+  state.clientPolicyPendingTargets[normalizedMac] = proxyId;
   state.clientPolicyBusyMac = normalizedMac;
   updateBusyControls();
   renderClientPolicies();
@@ -3996,6 +4005,7 @@ function applyClientPolicy(mac) {
       })
     )
     .finally(() => {
+      delete state.clientPolicyPendingTargets[normalizedMac];
       state.clientPolicyBusyMac = "";
       updateBusyControls();
       renderClientPolicies();
@@ -5988,6 +5998,7 @@ function init(message) {
   state.proxyRuntimeBusyId = "";
   state.proxyRuntimeBusyAction = "";
   state.clientPolicyBusyMac = "";
+  state.clientPolicyPendingTargets = {};
   state.clientHosts = [];
   state.clientPolicies = [];
   state.clientAssignments = [];

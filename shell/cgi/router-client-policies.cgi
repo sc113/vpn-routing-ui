@@ -1,7 +1,26 @@
 #!/bin/sh
 
 json_escape() {
-  printf '%s' "$1" | sed ':a;N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\r/\\r/g;s/\n/\\n/g'
+  printf '%s' "$1" | awk '
+    BEGIN { ORS = "" }
+    {
+      if (NR > 1) {
+        printf "\\n"
+      }
+      for (i = 1; i <= length($0); i++) {
+        char = substr($0, i, 1)
+        if (char == "\\") {
+          printf "\\\\"
+        } else if (char == "\"") {
+          printf "\\\""
+        } else if (char == "\r") {
+          printf "\\r"
+        } else {
+          printf "%s", char
+        }
+      }
+    }
+  '
 }
 
 MANAGED_POLICY_PREFIX="DeviceFull-"
@@ -34,7 +53,7 @@ decode_name() {
 }
 
 sanitize_name() {
-  printf '%s' "$1" | tr '\r\n' '  ' | sed 's/"/ /g'
+  printf '%s' "$1" | tr '\r\n\\' '   ' | sed 's/"/ /g'
 }
 
 run_ndmc() {
@@ -42,7 +61,10 @@ run_ndmc() {
   code=$?
   CMD_OUTPUT=$(cat /tmp/router-client-policies-cmd.$$ 2>/dev/null)
   rm -f /tmp/router-client-policies-cmd.$$
-  return $code
+  if [ "$code" -ne 0 ] || printf '%s\n' "$CMD_OUTPUT" | grep -qi 'error\['; then
+    return 1
+  fi
+  return 0
 }
 
 fetch_url() {
@@ -272,6 +294,9 @@ emit_state() {
   policy != "" && $1 == "description" {
     sub(/^[ \t]*description[ \t]*/, "")
     desc = $0
+    if (desc ~ /^".*"$/) {
+      desc = substr(desc, 2, length(desc) - 2)
+    }
     next
   }
   policy != "" && $1 == "permit" && $2 == "global" && $3 ~ /^Proxy[0-9]+$/ {
@@ -453,12 +478,12 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
     grep -q "^interface $proxy_id\$" "$RUNCFG_FILE" || fail "Указанный ProxyN не существует на роутере" "$proxy_id"
 
     policy_id="${MANAGED_POLICY_PREFIX}${proxy_id}"
-    policy_desc="Полный маршрут через $profile_name"
+    policy_desc="VPN UI full route via $proxy_id"
 
     if ! run_ndmc "ip policy $policy_id"; then
       fail "Не удалось создать или открыть policy $policy_id" "$CMD_OUTPUT"
     fi
-    if ! run_ndmc "ip policy $policy_id description $policy_desc"; then
+    if ! run_ndmc "ip policy $policy_id description \"$policy_desc\""; then
       fail "Не удалось сохранить описание policy $policy_id" "$CMD_OUTPUT"
     fi
     if ! run_ndmc "ip policy $policy_id permit global $proxy_id"; then
@@ -476,6 +501,25 @@ if [ "$REQUEST_METHOD" = "POST" ]; then
   fi
 
   cleanup_unused_managed_policies
+
+  if ! ndmc -c 'show running-config' > "$RUNCFG_FILE" 2>/tmp/router-client-policies-show.$$; then
+    details=$(cat /tmp/router-client-policies-show.$$ 2>/dev/null)
+    rm -f /tmp/router-client-policies-show.$$
+    fail "Не удалось проверить сохранённый полный маршрут" "$details"
+  fi
+  rm -f /tmp/router-client-policies-show.$$
+
+  if [ -n "$proxy_id" ]; then
+    policy_block=$(sed -n "/^ip policy $policy_id\$/,/^!\$/p" "$RUNCFG_FILE")
+    if ! printf '%s\n' "$policy_block" | grep -q "^[[:space:]]*permit global $proxy_id\$"; then
+      fail "Keenetic не сохранил $proxy_id в policy $policy_id" "$policy_block"
+    fi
+    if ! grep -q "^[[:space:]]*host $mac policy $policy_id\$" "$RUNCFG_FILE"; then
+      fail "Keenetic не назначил policy клиенту $mac" "$policy_id"
+    fi
+  elif grep -q "^[[:space:]]*host $mac policy " "$RUNCFG_FILE"; then
+    fail "Keenetic не снял policy с клиента $mac" "Проверьте назначение клиента в веб-интерфейсе Keenetic."
+  fi
 
   if ! ndmc -c 'system configuration save' >/tmp/router-client-policies-save.$$ 2>&1; then
     details=$(cat /tmp/router-client-policies-save.$$ 2>/dev/null)
