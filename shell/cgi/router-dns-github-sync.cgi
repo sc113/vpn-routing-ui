@@ -108,6 +108,26 @@ config_value() {
   ' "$file" 2>/dev/null
 }
 
+json_first_string() {
+  field="$1"
+  file="$2"
+  awk -v needle="\"$field\"" '
+  {
+    rest = $0
+    while ((position = index(rest, needle)) > 0) {
+      rest = substr(rest, position + length(needle))
+      if (rest ~ /^[[:space:]]*:[[:space:]]*"/) {
+        sub(/^[[:space:]]*:[[:space:]]*"/, "", rest)
+        split(rest, parts, "\"")
+        print parts[1]
+        exit
+      }
+      rest = substr(rest, 2)
+    }
+  }
+  ' "$file" 2>/dev/null
+}
+
 load_config() {
   CONFIG_REPOSITORY=$(config_value repository "$CONFIG_FILE")
   CONFIG_BRANCH=$(config_value branch "$CONFIG_FILE")
@@ -297,8 +317,8 @@ fetch_remote_version() {
     GITHUB_ERROR=$(cat "$RESPONSE_FILE" 2>/dev/null | head -c 600)
     return 1
   fi
-  REMOTE_COMMIT=$(sed -n 's/^[[:space:]]*"sha":[[:space:]]*"\([0-9a-f][0-9a-f]*\)".*/\1/p' "$COMMITS_FILE" | head -n 1)
-  REMOTE_VERSION=$(sed -n 's/^[[:space:]]*"date":[[:space:]]*"\([^"]*\)".*/\1/p' "$COMMITS_FILE" | head -n 1)
+  REMOTE_COMMIT=$(json_first_string sha "$COMMITS_FILE")
+  REMOTE_VERSION=$(json_first_string date "$COMMITS_FILE")
   if [ -z "$REMOTE_COMMIT" ] || [ -z "$REMOTE_VERSION" ]; then
     GITHUB_ERROR="GitHub не вернул коммит или дату DNS-файла."
     return 1
@@ -311,7 +331,7 @@ fetch_remote_file() {
   if ! github_curl --get --data-urlencode "ref=$CONFIG_BRANCH" "$api_url" > "$META_FILE" 2>"$RESPONSE_FILE"; then
     fail "Не удалось прочитать DNS-файл из GitHub" "$(cat "$RESPONSE_FILE" 2>/dev/null | head -c 600)"
   fi
-  REMOTE_BLOB=$(sed -n 's/^[[:space:]]*"sha":[[:space:]]*"\([0-9a-f][0-9a-f]*\)".*/\1/p' "$META_FILE" | head -n 1)
+  REMOTE_BLOB=$(json_first_string sha "$META_FILE")
   [ -n "$REMOTE_BLOB" ] || fail "GitHub не вернул SHA DNS-файла" "$CONFIG_REPOSITORY/$CONFIG_PATH"
 
   if ! curl -fsS --connect-timeout 15 --max-time 120 --retry 2 --retry-delay 2 \
@@ -363,7 +383,7 @@ push_local_file() {
     "$api_url" > "$RESPONSE_FILE" 2>"$CHILD_FILE"; then
     fail "Не удалось отправить DNS-файл в GitHub" "$(cat "$CHILD_FILE" "$RESPONSE_FILE" 2>/dev/null | head -c 800)"
   fi
-  new_blob=$(sed -n 's/^[[:space:]]*"sha":[[:space:]]*"\([0-9a-f][0-9a-f]*\)".*/\1/p' "$RESPONSE_FILE" | head -n 1)
+  new_blob=$(json_first_string sha "$RESPONSE_FILE")
   [ -n "$new_blob" ] && REMOTE_BLOB="$new_blob"
   if ! fetch_remote_version; then
     REMOTE_VERSION="$LOCAL_VERSION"
@@ -511,7 +531,7 @@ sync_dns() {
 
   if [ "$current_hash" = "$remote_hash" ]; then
     LOCAL_HASH="$current_hash"
-    [ -n "$LOCAL_VERSION" ] || LOCAL_VERSION="$REMOTE_VERSION"
+    LOCAL_VERSION="$REMOTE_VERSION"
     LAST_DIRECTION="equal"
     LAST_SYNC=$(now_iso)
     save_state
@@ -536,6 +556,7 @@ sync_dns() {
     upload)
       LOCAL_HASH="$current_hash"
       push_local_file
+      LOCAL_VERSION="$REMOTE_VERSION"
       message="Более новая версия роутера отправлена в GitHub."
       ;;
     download)

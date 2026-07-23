@@ -7,6 +7,7 @@
     selectedGroupId: "",
     progress: null,
     syncStatus: null,
+    syncBlocked: true,
   };
   let progressClearTimer = 0;
 
@@ -208,7 +209,15 @@
 
   function hostCountText(count) {
     const value = Number(count) || 0;
-    return value + " шт.";
+    const mod10 = value % 10;
+    const mod100 = value % 100;
+    const word =
+      mod10 === 1 && mod100 !== 11
+        ? "адрес"
+        : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
+          ? "адреса"
+          : "адресов";
+    return value + " " + word;
   }
 
   function setBusy(busy) {
@@ -239,6 +248,9 @@
       const element = $(id);
       if (element) element.disabled = busy;
     });
+    if ($("syncDnsBtn")) {
+      $("syncDnsBtn").disabled = busy || state.syncBlocked;
+    }
     if ($("dnsText")) $("dnsText").disabled = busy;
   }
 
@@ -248,23 +260,14 @@
     const metrics = payload || currentMetrics();
     const groupCount = Number(metrics.groupCount) || 0;
     const includeCount = Number(metrics.includeCount) || 0;
-    const routeCount = Number(metrics.routeCount) || 0;
     container.innerHTML = `
       <div class="engine-inline-chip ${groupCount ? "chip-ok" : "chip-warn"}">
-        <span class="label">Группы</span>
+        <span class="label">Списков</span>
         <span class="value">${escapeHtml(groupCount)}</span>
       </div>
       <div class="engine-inline-chip ${includeCount ? "chip-ok" : "chip-muted"}">
-        <span class="label">Хосты</span>
+        <span class="label">Адресов</span>
         <span class="value">${escapeHtml(includeCount)}</span>
-      </div>
-      <div class="engine-inline-chip ${routeCount ? "chip-ok" : "chip-muted"}">
-        <span class="label">Маршруты</span>
-        <span class="value">${escapeHtml(routeCount)}</span>
-      </div>
-      <div class="engine-inline-chip chip-muted">
-        <span class="label">Формат</span>
-        <span class="value">${/(?:^|\n)# vpn-routing-ui dns-groups v2(?:\r?\n|$)/.test(state.text) ? "dns-groups v2" : "dns-groups v1"}</span>
       </div>
     `;
   }
@@ -291,6 +294,42 @@
     node.textContent = text;
   }
 
+  function compareVersionDates(left, right) {
+    const leftTime = Date.parse(String(left || ""));
+    const rightTime = Date.parse(String(right || ""));
+    if (!Number.isFinite(leftTime) || !Number.isFinite(rightTime)) return 0;
+    if (leftTime === rightTime) return 0;
+    return leftTime > rightTime ? 1 : -1;
+  }
+
+  function setSyncPresentation(options) {
+    const data = options || {};
+    const hub = $("dnsSyncHub");
+    const badge = $("syncBadge");
+    const icon = $("syncStateIcon");
+    if (hub) hub.dataset.syncState = data.state || "ready";
+    if (badge) {
+      badge.className = "dns-status-badge " + (data.badgeKind || data.state || "ready");
+      badge.textContent = data.badge || "Готово";
+    }
+    if (icon) icon.textContent = data.icon || "✓";
+    if ($("syncHeadline")) $("syncHeadline").textContent = data.headline || "Можно синхронизировать";
+    if ($("syncExplanation")) $("syncExplanation").textContent = data.explanation || "";
+    if ($("syncDirectionLabel")) $("syncDirectionLabel").textContent = data.directionLabel || "Сравниваем даты";
+    if ($("syncDirectionIcon")) $("syncDirectionIcon").textContent = data.directionIcon || "↔";
+    if ($("syncDnsBtn")) $("syncDnsBtn").textContent = data.buttonText || "Синхронизировать сейчас";
+
+    state.syncBlocked = Boolean(data.blocked);
+    if ($("syncDnsBtn")) $("syncDnsBtn").disabled = state.loading || state.syncBlocked;
+
+    ["localVersionCard", "remoteVersionCard"].forEach((id) => {
+      const node = $(id);
+      if (node) node.classList.remove("is-newer", "is-attention");
+    });
+    if (data.newerCard && $(data.newerCard)) $(data.newerCard).classList.add("is-newer");
+    if (data.attentionCard && $(data.attentionCard)) $(data.attentionCard).classList.add("is-attention");
+  }
+
   function renderSyncStatus(payload) {
     const data = payload || {};
     state.syncStatus = data;
@@ -304,15 +343,11 @@
           : "Не задана";
     }
     if (data.localVersionKnown) {
-      setVersionNote("localVersionState", "ok", "Текущий снимок учтён в системе версий");
+      setVersionNote("localVersionState", "ok", "Дата текущего списка");
     } else if (data.localChanged) {
-      setVersionNote(
-        "localVersionState",
-        "warn",
-        "DNS-группы изменились. Нажми «Считать текущую версию», чтобы присвоить текущую секунду."
-      );
+      setVersionNote("localVersionState", "warn", "Изменён вручную — нужно подтвердить дату");
     } else {
-      setVersionNote("localVersionState", "warn", "Считай текущую версию перед первой отправкой на GitHub");
+      setVersionNote("localVersionState", "warn", "Версия ещё не учитывалась");
     }
 
     const remoteVersionNode = $("remoteVersionValue");
@@ -323,9 +358,9 @@
       setVersionNote("remoteVersionState", "error", data.remoteError);
     } else if (data.remoteVersion) {
       const commit = String(data.remoteCommit || "").slice(0, 7);
-      setVersionNote("remoteVersionState", "ok", commit ? "Коммит " + commit : "Дата DNS-файла получена");
+      setVersionNote("remoteVersionState", "ok", commit ? "Последнее изменение · " + commit : "Дата файла получена");
     } else {
-      setVersionNote("remoteVersionState", "warn", "Версия DNS-файла ещё не получена");
+      setVersionNote("remoteVersionState", "warn", "Дата файла ещё не получена");
     }
 
     if ($("syncRepositoryValue")) {
@@ -341,14 +376,147 @@
     if ($("syncSecretInput")) {
       $("syncSecretInput").value = "";
       $("syncSecretInput").placeholder = data.secretConfigured
-        ? "Секрет сохранён — оставь пустым, чтобы не менять"
-        : "Введи Personal access token";
+        ? "Токен сохранён — оставьте пустым, чтобы не менять"
+        : "github_pat_…";
     }
     if ($("syncSecretState")) {
       $("syncSecretState").textContent = data.secretConfigured
-        ? "Секрет сохранён на роутере и не возвращается в браузер."
-        : "Секрет ещё не задан. Нужен токен с доступом к содержимому репозитория.";
+        ? "Токен сохранён на роутере и не возвращается в браузер."
+        : "Токен ещё не задан. Нужен fine-grained token с правом Contents: Read and write.";
     }
+    if ($("syncSettingsSummary")) {
+      $("syncSettingsSummary").textContent = data.repository
+        ? `${data.repository} · ${data.branch || "main"}`
+        : "Репозиторий, файл и токен доступа";
+    }
+    if ($("syncSettingsBadge")) {
+      $("syncSettingsBadge").className = "dns-settings-badge " + (data.secretConfigured ? "ok" : "warn");
+      $("syncSettingsBadge").textContent = data.secretConfigured ? "Подключено" : "Нужен токен";
+    }
+    if ($("syncSettingsDetails") && !data.secretConfigured) {
+      $("syncSettingsDetails").open = true;
+    }
+    if ($("syncLastRun")) {
+      $("syncLastRun").textContent = data.lastSync
+        ? "Последняя синхронизация: " + formatVersionDate(data.lastSync)
+        : "Синхронизация ещё не запускалась";
+    }
+
+    const captureButton = $("captureVersionBtn");
+    if (captureButton) {
+      captureButton.hidden = !data.localChanged;
+    }
+
+    if (!data.secretConfigured) {
+      setSyncPresentation({
+        state: "setup",
+        badgeKind: "setup",
+        badge: "Нужна настройка",
+        icon: "!",
+        headline: "Подключите GitHub",
+        explanation: "Укажите токен в настройках ниже. После этого всё будет обновляться одной кнопкой.",
+        directionLabel: "GitHub не подключён",
+        buttonText: "Сначала подключите GitHub",
+        blocked: true,
+      });
+      return;
+    }
+
+    if (data.localChanged) {
+      setSyncPresentation({
+        state: "action",
+        badgeKind: "action",
+        badge: "Найдены изменения",
+        icon: "!",
+        headline: "На роутере есть новые изменения",
+        explanation: "Подтвердите их текущей датой, затем отправьте в GitHub обычной синхронизацией.",
+        directionLabel: "Сначала подтвердите роутер",
+        buttonText: "Сначала подтвердите изменения",
+        blocked: true,
+        attentionCard: "localVersionCard",
+      });
+      return;
+    }
+
+    if (data.remoteError) {
+      setSyncPresentation({
+        state: "error",
+        badgeKind: "error",
+        badge: "GitHub недоступен",
+        icon: "!",
+        headline: "Не удалось проверить GitHub",
+        explanation: "Проверьте репозиторий, токен или интернет-соединение и повторите попытку.",
+        directionLabel: "Нет данных GitHub",
+        buttonText: "Повторить синхронизацию",
+        blocked: false,
+      });
+      return;
+    }
+
+    if (!data.localVersionKnown && data.remoteVersion) {
+      setSyncPresentation({
+        state: "action",
+        badgeKind: "action",
+        badge: "Можно обновить",
+        icon: "↓",
+        headline: "Готовы загрузить список из GitHub",
+        explanation: "На роутере ещё нет учтённой версии. GitHub станет источником для первого обновления.",
+        directionLabel: "GitHub → роутер",
+        directionIcon: "←",
+        buttonText: "Загрузить список из GitHub",
+        blocked: false,
+        newerCard: "remoteVersionCard",
+      });
+      return;
+    }
+
+    const order = compareVersionDates(data.localVersion, data.remoteVersion);
+    if (order > 0) {
+      setSyncPresentation({
+        state: "action",
+        badgeKind: "action",
+        badge: "Роутер свежее",
+        icon: "↑",
+        headline: "Отправить изменения в GitHub",
+        explanation: "Версия роутера новее. GitHub будет обновлён, настройки маршрутов не изменятся.",
+        directionLabel: "Роутер → GitHub",
+        directionIcon: "→",
+        buttonText: "Отправить свежий список в GitHub",
+        blocked: false,
+        newerCard: "localVersionCard",
+      });
+      return;
+    }
+
+    if (order < 0) {
+      setSyncPresentation({
+        state: "action",
+        badgeKind: "action",
+        badge: "GitHub свежее",
+        icon: "↓",
+        headline: "Загрузить изменения на роутер",
+        explanation: "Версия GitHub новее. Роутер построит из неё DNS-группы автоматически.",
+        directionLabel: "GitHub → роутер",
+        directionIcon: "←",
+        buttonText: "Загрузить свежий список на роутер",
+        blocked: false,
+        newerCard: "remoteVersionCard",
+      });
+      return;
+    }
+
+    setSyncPresentation({
+      state: "equal",
+      badgeKind: "ready",
+      badge: "Всё актуально",
+      icon: "✓",
+      headline: "Списки синхронизированы",
+      explanation: "По датам версии совпадают. Можно проверить содержимое ещё раз в любой момент.",
+      directionLabel: "Версии одной даты",
+      directionIcon: "↔",
+      buttonText: "Проверить и синхронизировать",
+      blocked: false,
+    });
   }
 
   async function loadSyncStatus(options) {
@@ -360,6 +528,17 @@
       return data;
     } catch (error) {
       setVersionNote("remoteVersionState", "error", "Не удалось прочитать версии: " + error.message);
+      setSyncPresentation({
+        state: "error",
+        badgeKind: "error",
+        badge: "Ошибка проверки",
+        icon: "!",
+        headline: "Не удалось проверить списки",
+        explanation: "Соединение с роутером или GitHub прервалось. Нажмите «Проверить ещё раз».",
+        directionLabel: "Проверка не завершена",
+        buttonText: "Повторить синхронизацию",
+        blocked: false,
+      });
       if (!opts.silent) showBanner("error", "Не удалось прочитать версии DNS: " + error.message);
       throw error;
     } finally {
@@ -417,7 +596,8 @@
         body,
       });
       await loadSyncStatus({ silent: true });
-      showBanner("ok", data.message || "Настройки GitHub сохранены.");
+      if ($("syncSettingsDetails")) $("syncSettingsDetails").open = false;
+      showBanner("ok", data.message || "GitHub подключён и проверен.");
     } catch (error) {
       showBanner("error", error.message);
     } finally {
@@ -452,26 +632,23 @@
     const groups = parseTransferText(state.text);
     ensureSelectedGroup(groups);
     if (!groups.length) {
-      body.innerHTML = '<tr><td colspan="5" class="table-empty">Вставь DNS-файл или получи снимок с роутера.</td></tr>';
+      body.innerHTML = '<tr><td colspan="3" class="table-empty">На роутере пока нет DNS-списков.</td></tr>';
       renderGroupEditor(groups);
       return;
     }
     body.innerHTML = groups
       .map((group, index) => {
-        const routeClass = group.route ? "status-pill status-ok tiny-status" : "status-pill status-neutral tiny-status";
         const selectedClass = group.groupId === state.selectedGroupId ? " is-selected" : "";
         const includePreview = group.includes.slice(0, 3).join(", ");
         const includeExtra = group.includes.length > 3 ? " +" + (group.includes.length - 3) : "";
         return `
           <tr class="dns-transfer-row${selectedClass}" data-group-id="${escapeHtml(group.groupId)}">
             <td class="mono">${index + 1}</td>
-            <td class="mono">${escapeHtml(group.groupId)}</td>
             <td>${escapeHtml(group.description || group.groupId)}</td>
             <td>
               <div class="client-device-name">${escapeHtml(hostCountText(group.includes.length))}</div>
               <div class="client-device-meta">${escapeHtml(includePreview || "пусто")}${escapeHtml(includeExtra)}</div>
             </td>
-            <td><span class="${routeClass}">${escapeHtml(group.route || "не назначен")}</span></td>
           </tr>
         `;
       })
@@ -484,33 +661,38 @@
     if (!container) return;
     const group = selectedGroup(groups);
     if (!group) {
-      container.innerHTML = '<div class="dns-group-editor-empty">Выбери DNS-группу слева, чтобы править её хосты.</div>';
+      container.innerHTML = `
+        <div class="dns-group-editor-empty">
+          <span aria-hidden="true">←</span>
+          <strong>Выберите список</strong>
+          <small>Здесь появятся его название и адреса сайтов.</small>
+        </div>
+      `;
       return;
     }
 
     const disabled = state.loading ? " disabled" : "";
-    const routeClass = group.route ? "status-pill status-ok tiny-status" : "status-pill status-neutral tiny-status";
     container.innerHTML = `
       <div class="dns-group-editor-head">
         <div>
           <h3>${escapeHtml(group.description || group.groupId)}</h3>
-          <div class="client-device-meta mono">${escapeHtml(group.groupId)}</div>
+          <div class="client-device-meta">Редактирование выбранного списка</div>
         </div>
-        <span class="${routeClass}">${escapeHtml(group.route || "маршрут не назначен")}</span>
+        <span class="dns-group-id-pill">${escapeHtml(group.groupId)}</span>
       </div>
       <div class="field-stack dns-group-name-field">
-        <label for="groupNameInput">Название списка</label>
+        <label for="groupNameInput">Понятное название</label>
         <input id="groupNameInput" type="text" value="${escapeHtml(group.description || "")}"${disabled}>
       </div>
       <div class="field-stack">
-        <label for="groupHostsText">Хосты, домены или IP, по одному в строке</label>
+        <label for="groupHostsText">Домены или IP — по одному в строке</label>
         <textarea id="groupHostsText" class="dns-hosts-text" spellcheck="false"${disabled}>${escapeHtml(
           group.includes.join("\n")
         )}</textarea>
       </div>
       <div class="dns-group-editor-actions">
-        <button id="saveGroupTextBtn" class="secondary" type="button"${disabled}>Сохранить в текст</button>
-        <button id="saveGroupApplyBtn" class="warning" type="button"${disabled}>Сохранить эту группу</button>
+        <button id="saveGroupTextBtn" class="secondary" type="button"${disabled}>Оставить черновиком</button>
+        <button id="saveGroupApplyBtn" class="warning" type="button"${disabled}>Сохранить на роутер</button>
         <button id="discardGroupBtn" class="ghost" type="button"${disabled}>Отменить</button>
       </div>
     `;

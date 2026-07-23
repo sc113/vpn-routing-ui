@@ -8,11 +8,12 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
   <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DNS-группы - VPN Routing UI</title>
-  <link rel="stylesheet" href="/app.css">
+  <title>DNS-списки — VPN Routing UI</title>
+  <link rel="stylesheet" href="/cgi-bin/ui-asset.cgi/app.css">
+  <link rel="stylesheet" href="/cgi-bin/ui-asset.cgi/dns-sync-page.css">
 </head>
 <body>
-  <div class="app-shell">
+  <div class="app-shell dns-page-shell">
     <aside class="app-sidebar" aria-label="Основные разделы">
       <div class="app-sidebar-brand">
         <strong>VPN Routing UI</strong>
@@ -28,173 +29,229 @@
         </a>
         <a class="side-tab active" href="/dns-sync.html" aria-current="page">
           <span class="side-tab-icon" aria-hidden="true">⇄</span>
-          <span>DNS-группы</span>
+          <span>DNS-списки</span>
         </a>
       </nav>
       <div class="app-sidebar-foot">Keenetic + Entware</div>
     </aside>
 
-    <main class="page">
-    <section class="hero">
-      <h1>DNS-группы</h1>
-      <p>
-        DNS-списки синхронизируются с GitHub по дате версии. Более новая сторона автоматически становится источником,
-        а загруженный файл строит Keenetic <span class="inline-code">domain-list</span> группы без изменения ProxyN и DNS-маршрутов.
-      </p>
-    </section>
-
-    <div id="banner" class="banner"></div>
-    <div id="dnsProgress" class="operation-progress operation-progress-standalone" hidden>
-      <div class="operation-progress-head">
-        <span id="dnsProgressStep" class="operation-progress-step">Готовим сохранение</span>
-        <span id="dnsProgressPercent" class="operation-progress-percent">0%</span>
-      </div>
-      <div class="operation-progress-track" aria-hidden="true">
-        <div id="dnsProgressBar" class="operation-progress-bar"></div>
-      </div>
-    </div>
-
-    <section class="panel dns-sync-panel">
-      <div class="toolbar">
-        <div>
-          <h2>Автоматическая синхронизация</h2>
-          <p class="hint">
-            «Обновить» сравнивает версии до секунды. Новая версия роутера отправляется в GitHub,
-            новая версия GitHub скачивается и применяется на роутере.
-          </p>
+    <main class="page dns-page">
+      <section class="hero dns-page-hero">
+        <div class="dns-page-hero-copy">
+          <span class="dns-eyebrow">Списки сайтов для маршрутизации</span>
+          <h1>DNS-списки</h1>
+          <p>Добавляйте сайты в группы и храните их резервную копию в GitHub.</p>
         </div>
-        <div class="toolbar-right">
-          <button id="captureVersionBtn" class="secondary" type="button">Считать текущую версию</button>
-          <button id="syncDnsBtn" class="warning" type="button">Обновить</button>
-          <button id="refreshSyncStatusBtn" class="refresh-button" type="button" aria-label="Обновить версии" title="Обновить версии">♻️</button>
+        <div class="dns-safety-note">
+          <span class="dns-safety-icon" aria-hidden="true">✓</span>
+          <span><strong>Безопасное обновление</strong>VPN-профили и назначенные маршруты не изменяются.</span>
+        </div>
+      </section>
+
+      <div id="banner" class="banner" role="status" aria-live="polite"></div>
+      <div id="dnsProgress" class="operation-progress operation-progress-standalone" hidden>
+        <div class="operation-progress-head">
+          <span id="dnsProgressStep" class="operation-progress-step">Готовим обновление</span>
+          <span id="dnsProgressPercent" class="operation-progress-percent">0%</span>
+        </div>
+        <div class="operation-progress-track" aria-hidden="true">
+          <div id="dnsProgressBar" class="operation-progress-bar"></div>
         </div>
       </div>
 
-      <div class="dns-version-grid">
-        <article class="dns-version-card">
-          <span class="label">Версия роутера</span>
-          <strong id="localVersionValue">Проверяем…</strong>
-          <span id="localVersionState" class="dns-version-note">Читаем текущие DNS-группы</span>
-        </article>
-        <article class="dns-version-card">
-          <span class="label">Версия GitHub</span>
-          <strong id="remoteVersionValue">Проверяем…</strong>
-          <span id="remoteVersionState" class="dns-version-note">Читаем дату последнего коммита файла</span>
-        </article>
-        <article class="dns-version-card">
-          <span class="label">Источник</span>
-          <strong id="syncRepositoryValue">sc113/vpn-rui-dns</strong>
-          <span id="syncRepositoryState" class="dns-version-note">main · vpn-routing-ui-dns-groups.txt</span>
-        </article>
-      </div>
-
-      <details class="dns-sync-settings" id="syncSettingsDetails">
-        <summary>Настройки GitHub</summary>
-        <div class="dns-sync-settings-grid">
-          <div class="field-stack">
-            <label for="syncRepositoryInput">Репозиторий</label>
-            <input id="syncRepositoryInput" type="text" autocomplete="off" placeholder="owner/repository">
+      <section id="dnsSyncHub" class="panel dns-sync-hub" data-sync-state="loading" aria-labelledby="syncHeadline">
+        <div class="dns-sync-summary">
+          <div id="syncStateIcon" class="dns-sync-state-icon" aria-hidden="true">↻</div>
+          <div class="dns-sync-summary-copy" aria-live="polite">
+            <span id="syncBadge" class="dns-status-badge loading">Проверяем</span>
+            <h2 id="syncHeadline">Сравниваем списки…</h2>
+            <p id="syncExplanation">Смотрим даты на роутере и в GitHub, чтобы выбрать свежую версию.</p>
+            <span id="syncLastRun" class="dns-last-sync">Последняя синхронизация: проверяем…</span>
           </div>
-          <div class="field-stack">
-            <label for="syncBranchInput">Ветка</label>
-            <input id="syncBranchInput" type="text" autocomplete="off" placeholder="main">
-          </div>
-          <div class="field-stack">
-            <label for="syncPathInput">Путь DNS-файла</label>
-            <input id="syncPathInput" type="text" autocomplete="off" placeholder="vpn-routing-ui-dns-groups.txt">
-          </div>
-          <div class="field-stack">
-            <label for="syncKeyInput">Ключ / логин GitHub</label>
-            <input id="syncKeyInput" type="text" autocomplete="username" placeholder="github-login">
-          </div>
-          <div class="field-stack dns-sync-secret-field">
-            <label for="syncSecretInput">Секрет / Personal access token</label>
-            <input id="syncSecretInput" type="password" autocomplete="new-password" placeholder="Введи токен или оставь сохранённый">
+          <div class="dns-sync-main-actions">
+            <button id="syncDnsBtn" class="dns-primary-action" type="button">Синхронизировать сейчас</button>
+            <button id="captureVersionBtn" class="dns-capture-action" type="button" hidden>
+              Считать изменения роутера новыми
+            </button>
+            <button id="refreshSyncStatusBtn" class="dns-refresh-action" type="button">
+              <span aria-hidden="true">↻</span>
+              Проверить ещё раз
+            </button>
           </div>
         </div>
-        <div class="dns-sync-settings-actions">
-          <button id="saveSyncSettingsBtn" class="secondary" type="button">Сохранить настройки</button>
-          <span id="syncSecretState" class="field-note">Секрет хранится на роутере и никогда не возвращается в браузер.</span>
+
+        <div class="dns-compare-block" aria-label="Сравнение версий">
+          <div class="dns-compare-heading">
+            <div>
+              <h3>Где хранится список</h3>
+              <p>Свежая сторона обновит вторую автоматически.</p>
+            </div>
+            <span id="syncDirectionLabel" class="dns-direction-label">Сравниваем даты</span>
+          </div>
+
+          <div class="dns-compare-grid">
+            <article id="localVersionCard" class="dns-source-card">
+              <div class="dns-source-card-head">
+                <span class="dns-source-icon router" aria-hidden="true">R</span>
+                <span>
+                  <strong>Этот роутер</strong>
+                  <small>Текущие DNS-группы Keenetic</small>
+                </span>
+              </div>
+              <time id="localVersionValue">Проверяем…</time>
+              <span id="localVersionState" class="dns-version-note">Читаем список</span>
+            </article>
+
+            <div id="syncDirectionIcon" class="dns-compare-arrow" aria-hidden="true">↔</div>
+
+            <article id="remoteVersionCard" class="dns-source-card">
+              <div class="dns-source-card-head">
+                <span class="dns-source-icon github" aria-hidden="true">G</span>
+                <span>
+                  <strong>GitHub</strong>
+                  <small id="syncRepositoryValue">Проверяем репозиторий…</small>
+                </span>
+              </div>
+              <time id="remoteVersionValue">Проверяем…</time>
+              <span id="remoteVersionState" class="dns-version-note">Читаем дату файла</span>
+              <span id="syncRepositoryState" class="dns-source-path"></span>
+            </article>
+          </div>
+        </div>
+
+        <details class="dns-sync-settings" id="syncSettingsDetails">
+          <summary>
+            <span class="dns-settings-summary-icon" aria-hidden="true">⚙</span>
+            <span class="dns-settings-summary-copy">
+              <strong>Подключение к GitHub</strong>
+              <small id="syncSettingsSummary">Репозиторий, файл и токен доступа</small>
+            </span>
+            <span id="syncSettingsBadge" class="dns-settings-badge">Проверяем</span>
+          </summary>
+
+          <div class="dns-settings-body">
+            <div class="dns-settings-intro">
+              <strong>Заполняется один раз</strong>
+              <span>Токен хранится только на роутере. Для него достаточно права <b>Contents: Read and write</b> на выбранный репозиторий.</span>
+            </div>
+
+            <div class="dns-sync-settings-grid">
+              <div class="field-stack dns-repository-field">
+                <label for="syncRepositoryInput">Репозиторий</label>
+                <input id="syncRepositoryInput" type="text" autocomplete="off" placeholder="owner/repository">
+                <span class="field-note">Например: sc113/vpn-rui-dns</span>
+              </div>
+              <div class="field-stack">
+                <label for="syncBranchInput">Ветка</label>
+                <input id="syncBranchInput" type="text" autocomplete="off" placeholder="main">
+              </div>
+              <div class="field-stack">
+                <label for="syncPathInput">Имя или путь файла</label>
+                <input id="syncPathInput" type="text" autocomplete="off" placeholder="vpn-routing-ui-dns-groups.txt">
+              </div>
+              <div class="field-stack">
+                <label for="syncKeyInput">Логин GitHub</label>
+                <input id="syncKeyInput" type="text" autocomplete="username" placeholder="github-login">
+              </div>
+              <div class="field-stack dns-sync-secret-field">
+                <label for="syncSecretInput">Personal access token</label>
+                <input id="syncSecretInput" type="password" autocomplete="new-password" placeholder="github_pat_…">
+                <span id="syncSecretState" class="field-note">Проверяем сохранённый токен…</span>
+              </div>
+            </div>
+
+            <div class="dns-sync-settings-actions">
+              <button id="saveSyncSettingsBtn" class="dns-settings-save" type="button">Сохранить и проверить</button>
+              <span>Пустое поле токена не удаляет уже сохранённый токен.</span>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <section class="panel dns-lists-panel" id="dns-groups-editor">
+        <div class="dns-section-head">
+          <div>
+            <span class="dns-section-kicker">Основная работа</span>
+            <h2>Списки сайтов</h2>
+            <p>Выберите группу слева. Справа можно изменить название и адреса сайтов.</p>
+          </div>
+          <div class="dns-section-actions">
+            <a class="button-like secondary" href="/profiles.html#dns-routes">Назначить VPN-маршруты</a>
+            <button id="addGroupBtn" class="dns-add-group" type="button">+ Создать список</button>
+          </div>
+        </div>
+
+        <div id="transferStats" class="dns-transfer-stats" aria-live="polite"></div>
+
+        <div class="dns-group-editor-layout">
+          <div class="table-shell dns-groups-table-shell">
+            <table class="profiles-table dns-transfer-table">
+              <thead>
+                <tr>
+                  <th class="col-num">#</th>
+                  <th>Название</th>
+                  <th>Адреса</th>
+                </tr>
+              </thead>
+              <tbody id="groupsTableBody"></tbody>
+            </table>
+          </div>
+
+          <aside id="groupEditor" class="dns-group-editor" aria-live="polite">
+            <div class="dns-group-editor-empty">
+              <span aria-hidden="true">←</span>
+              <strong>Выберите список</strong>
+              <small>Здесь появятся его название и адреса сайтов.</small>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <details class="panel dns-advanced-panel" id="dnsAdvancedDetails">
+        <summary>
+          <span class="dns-advanced-icon" aria-hidden="true">↧</span>
+          <span>
+            <strong>Импорт и резервная копия</strong>
+            <small>Открыть текстовый файл, скачать копию или загрузить список вручную</small>
+          </span>
+          <span class="dns-details-chevron" aria-hidden="true">⌄</span>
+        </summary>
+
+        <div class="dns-advanced-body">
+          <div class="dns-advanced-intro">
+            <div>
+              <h2>Текстовый файл DNS-списков</h2>
+              <p>Нужен только для ручного переноса или восстановления. Обычные изменения удобнее делать в редакторе выше.</p>
+            </div>
+            <div class="dns-advanced-links">
+              <a class="button-like ghost" href="http://192.168.1.1/staticRoutes/dns" target="_blank" rel="noreferrer noopener">
+                Открыть DNS-группы Keenetic
+              </a>
+              <button id="reloadBtn" class="secondary" type="button">Перечитать с роутера</button>
+            </div>
+          </div>
+
+          <div class="dns-transfer-actions">
+            <button id="openFileBtn" class="secondary" type="button">Открыть файл</button>
+            <button id="downloadTextBtn" class="secondary" type="button">Скачать копию</button>
+            <button id="copyTextBtn" class="ghost" type="button">Копировать текст</button>
+            <button id="validateTextBtn" class="info" type="button">Проверить файл</button>
+            <button id="applyTextBtn" class="warning" type="button">Загрузить на роутер</button>
+          </div>
+
+          <input id="importFileInput" class="visually-hidden" type="file" accept=".txt,text/plain">
+          <textarea id="dnsText" class="dns-transfer-text" spellcheck="false" aria-label="Текст DNS-списков"></textarea>
+
+          <div class="dns-format-note">
+            <strong>Что изменится:</strong>
+            группы и адреса из файла будут добавлены или обновлены.
+            VPN-профили, DNS-маршруты и ProxyN останутся без изменений.
+          </div>
         </div>
       </details>
-    </section>
-
-    <section class="panel">
-      <div class="toolbar">
-        <div>
-          <h2>Текстовый код DNS</h2>
-          <p class="hint">
-            В тексте сохраняются названия групп и все <span class="inline-code">include</span>.
-            Формат v2 хранит названия обычным читаемым текстом. Применение добавляет или обновляет DNS-группы,
-            но не меняет назначенные DNS-маршруты и ProxyN.
-          </p>
-        </div>
-        <div class="toolbar-right">
-          <a class="button-like secondary" href="/profiles.html#dns-routes">Профили - DNS-маршруты</a>
-          <a
-            class="button-like ghost"
-            href="http://192.168.1.1/staticRoutes/dns"
-            target="_blank"
-            rel="noreferrer noopener"
-          >Открыть в Keenetic</a>
-          <button id="reloadBtn" class="refresh-button" type="button" aria-label="Получить DNS-файл с роутера" title="Получить DNS-файл с роутера">♻️</button>
-        </div>
-      </div>
-
-      <div class="dns-transfer-actions">
-        <button id="copyTextBtn" class="secondary" type="button">Копировать</button>
-        <button id="downloadTextBtn" class="secondary" type="button">Скачать файл</button>
-        <button id="openFileBtn" class="ghost" type="button">Открыть файл</button>
-        <button id="validateTextBtn" class="info" type="button">Проверить текст</button>
-        <button id="applyTextBtn" class="warning" type="button">Сохранить на роутер</button>
-      </div>
-
-      <input id="importFileInput" class="visually-hidden" type="file" accept=".txt,text/plain">
-      <textarea id="dnsText" class="dns-transfer-text" spellcheck="false"></textarea>
-      <div id="transferStats" class="dns-transfer-stats"></div>
-    </section>
-
-    <section class="panel" id="dns-groups-editor">
-      <div class="toolbar">
-        <div>
-          <h2>Редактор DNS-групп</h2>
-          <p class="hint">
-            Клик по группе открывает её хосты. Хосты редактируются по одному в строке и сохраняются в тот же переносимый текст.
-          </p>
-        </div>
-        <div class="toolbar-right">
-          <a class="button-like secondary" href="/profiles.html#dns-routes">Профили - DNS-маршруты</a>
-          <button id="addGroupBtn" class="secondary" type="button">+ Группа</button>
-        </div>
-      </div>
-
-      <div class="dns-group-editor-layout">
-        <div class="table-shell">
-          <table class="profiles-table dns-transfer-table">
-            <thead>
-              <tr>
-                <th class="col-num">#</th>
-                <th>Список</th>
-                <th>Название</th>
-                <th>Хосты</th>
-                <th>Маршрут</th>
-              </tr>
-            </thead>
-            <tbody id="groupsTableBody"></tbody>
-          </table>
-        </div>
-
-        <aside id="groupEditor" class="dns-group-editor" aria-live="polite">
-          <div class="dns-group-editor-empty">
-            Выбери DNS-группу слева, чтобы править её хосты.
-          </div>
-        </aside>
-      </div>
-    </section>
     </main>
   </div>
 
-  <script src="/system-health-widget.js"></script>
-  <script src="/dns-sync.js"></script>
+  <script src="/cgi-bin/ui-asset.cgi/dns-sync.js"></script>
 </body>
 </html>
