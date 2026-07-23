@@ -3,6 +3,50 @@
   --dns-accent-deep: #139984;
   --dns-blue: #74b9ff;
   --dns-warn: #f7b955;
+  --dns-scroll-track: #0d1420;
+  --dns-scroll-thumb: #405a72;
+  --dns-scroll-thumb-hover: #2ebca4;
+  scrollbar-color: var(--dns-scroll-thumb) var(--dns-scroll-track);
+  scrollbar-width: thin;
+}
+
+.dns-page-shell * {
+  scrollbar-color: var(--dns-scroll-thumb) var(--dns-scroll-track);
+  scrollbar-width: thin;
+}
+
+.dns-page-shell *::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.dns-page-shell *::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: var(--dns-scroll-track);
+}
+
+.dns-page-shell *::-webkit-scrollbar-thumb {
+  min-width: 40px;
+  min-height: 40px;
+  border: 2px solid var(--dns-scroll-track);
+  border-radius: 999px;
+  background: var(--dns-scroll-thumb);
+  background-clip: padding-box;
+}
+
+.dns-page-shell *::-webkit-scrollbar-thumb:hover {
+  background: var(--dns-scroll-thumb-hover);
+  background-clip: padding-box;
+}
+
+.dns-page-shell *::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.dns-page-shell *::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .dns-page {
@@ -718,16 +762,31 @@
 
 .dns-groups-table-shell {
   max-height: 660px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .dns-transfer-table {
-  min-width: 520px;
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
 }
 
 .dns-transfer-table th:nth-child(2),
 .dns-transfer-table td:nth-child(2) {
   width: 190px;
+}
+
+.dns-transfer-table td {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.dns-transfer-table .client-device-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dns-transfer-row td {
@@ -787,6 +846,8 @@
 
 .dns-hosts-text {
   min-height: 390px;
+  resize: none;
+  scrollbar-gutter: stable;
 }
 
 .dns-group-editor-actions button {
@@ -829,6 +890,8 @@
 
 .dns-transfer-text {
   min-height: 360px;
+  resize: none;
+  scrollbar-gutter: stable;
 }
 
 .dns-format-note {
@@ -1004,6 +1067,11 @@
 
   .dns-publish-actions button {
     width: 100%;
+  }
+
+  .dns-transfer-table th:nth-child(2),
+  .dns-transfer-table td:nth-child(2) {
+    width: 145px;
   }
 }
 
