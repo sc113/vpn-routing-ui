@@ -38,8 +38,8 @@
     <section class="hero">
       <h1>DNS-группы</h1>
       <p>
-        Один текстовый файл для переноса Keenetic <span class="inline-code">domain-list</span> групп между роутерами.
-        Сначала получи актуальный снимок, затем вставь этот текст на другом роутере и примени его без изменения ProxyN и DNS-маршрутов.
+        DNS-списки синхронизируются с GitHub по дате версии. Более новая сторона автоматически становится источником,
+        а загруженный файл строит Keenetic <span class="inline-code">domain-list</span> группы без изменения ProxyN и DNS-маршрутов.
       </p>
     </section>
 
@@ -54,13 +54,79 @@
       </div>
     </div>
 
+    <section class="panel dns-sync-panel">
+      <div class="toolbar">
+        <div>
+          <h2>Автоматическая синхронизация</h2>
+          <p class="hint">
+            «Обновить» сравнивает версии до секунды. Новая версия роутера отправляется в GitHub,
+            новая версия GitHub скачивается и применяется на роутере.
+          </p>
+        </div>
+        <div class="toolbar-right">
+          <button id="captureVersionBtn" class="secondary" type="button">Считать текущую версию</button>
+          <button id="syncDnsBtn" class="warning" type="button">Обновить</button>
+          <button id="refreshSyncStatusBtn" class="refresh-button" type="button" aria-label="Обновить версии" title="Обновить версии">♻️</button>
+        </div>
+      </div>
+
+      <div class="dns-version-grid">
+        <article class="dns-version-card">
+          <span class="label">Версия роутера</span>
+          <strong id="localVersionValue">Проверяем…</strong>
+          <span id="localVersionState" class="dns-version-note">Читаем текущие DNS-группы</span>
+        </article>
+        <article class="dns-version-card">
+          <span class="label">Версия GitHub</span>
+          <strong id="remoteVersionValue">Проверяем…</strong>
+          <span id="remoteVersionState" class="dns-version-note">Читаем дату последнего коммита файла</span>
+        </article>
+        <article class="dns-version-card">
+          <span class="label">Источник</span>
+          <strong id="syncRepositoryValue">sc113/vpn-rui-dns</strong>
+          <span id="syncRepositoryState" class="dns-version-note">main · vpn-routing-ui-dns-groups.txt</span>
+        </article>
+      </div>
+
+      <details class="dns-sync-settings" id="syncSettingsDetails">
+        <summary>Настройки GitHub</summary>
+        <div class="dns-sync-settings-grid">
+          <div class="field-stack">
+            <label for="syncRepositoryInput">Репозиторий</label>
+            <input id="syncRepositoryInput" type="text" autocomplete="off" placeholder="owner/repository">
+          </div>
+          <div class="field-stack">
+            <label for="syncBranchInput">Ветка</label>
+            <input id="syncBranchInput" type="text" autocomplete="off" placeholder="main">
+          </div>
+          <div class="field-stack">
+            <label for="syncPathInput">Путь DNS-файла</label>
+            <input id="syncPathInput" type="text" autocomplete="off" placeholder="vpn-routing-ui-dns-groups.txt">
+          </div>
+          <div class="field-stack">
+            <label for="syncKeyInput">Ключ / логин GitHub</label>
+            <input id="syncKeyInput" type="text" autocomplete="username" placeholder="github-login">
+          </div>
+          <div class="field-stack dns-sync-secret-field">
+            <label for="syncSecretInput">Секрет / Personal access token</label>
+            <input id="syncSecretInput" type="password" autocomplete="new-password" placeholder="Введи токен или оставь сохранённый">
+          </div>
+        </div>
+        <div class="dns-sync-settings-actions">
+          <button id="saveSyncSettingsBtn" class="secondary" type="button">Сохранить настройки</button>
+          <span id="syncSecretState" class="field-note">Секрет хранится на роутере и никогда не возвращается в браузер.</span>
+        </div>
+      </details>
+    </section>
+
     <section class="panel">
       <div class="toolbar">
         <div>
           <h2>Текстовый код DNS</h2>
           <p class="hint">
             В тексте сохраняются названия групп и все <span class="inline-code">include</span>.
-            Применение добавляет или обновляет DNS-группы, но не меняет назначенные DNS-маршруты и ProxyN.
+            Формат v2 хранит названия обычным читаемым текстом. Применение добавляет или обновляет DNS-группы,
+            но не меняет назначенные DNS-маршруты и ProxyN.
           </p>
         </div>
         <div class="toolbar-right">

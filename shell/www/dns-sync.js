@@ -1,10 +1,12 @@
 (function () {
   const API_URL = "/cgi-bin/router-dns-text-sync.cgi";
+  const SYNC_API_URL = "/cgi-bin/router-dns-github-sync.cgi";
   const state = {
     loading: false,
     text: "",
     selectedGroupId: "",
     progress: null,
+    syncStatus: null,
   };
   let progressClearTimer = 0;
 
@@ -128,6 +130,7 @@
 
   function parseTransferText(text) {
     const groups = new Map();
+    const isV2 = /(?:^|\n)# vpn-routing-ui dns-groups v2(?:\r?\n|$)/.test(String(text || ""));
     String(text || "")
       .split(/\r?\n/)
       .map((line) => line.trim())
@@ -136,7 +139,7 @@
         const parts = line.split("|");
         if (parts[0] === "G" && /^domain-list\d+$/.test(parts[1] || "")) {
           const group = ensureParsedGroup(groups, parts[1]);
-          group.description = decodeBase64(parts[2] || "");
+          group.description = isV2 ? parts.slice(2).join("|") : decodeBase64(parts[2] || "");
           group.route = "";
           return;
         }
@@ -154,8 +157,8 @@
 
   function serializeTransferText(groups) {
     const lines = [
-      "# vpn-routing-ui dns-groups v1",
-      "# G|domain-listN|base64(name/description)|route-target-legacy-ignored",
+      "# vpn-routing-ui dns-groups v2",
+      "# G|domain-listN|name/description",
       "# I|domain-listN|include-value",
       "# generated " + new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
     ];
@@ -168,7 +171,7 @@
         if (!/^domain-list\d+$/.test(groupId)) {
           return;
         }
-        lines.push(["G", groupId, encodeBase64(group.description || ""), group.route || ""].join("|"));
+        lines.push(["G", groupId, group.description || ""].join("|"));
         (Array.isArray(group.includes) ? group.includes : []).forEach((includeValue) => {
           lines.push(["I", groupId, includeValue].join("|"));
         });
@@ -218,6 +221,15 @@
       "validateTextBtn",
       "applyTextBtn",
       "addGroupBtn",
+      "captureVersionBtn",
+      "syncDnsBtn",
+      "refreshSyncStatusBtn",
+      "saveSyncSettingsBtn",
+      "syncRepositoryInput",
+      "syncBranchInput",
+      "syncPathInput",
+      "syncKeyInput",
+      "syncSecretInput",
       "groupNameInput",
       "groupHostsText",
       "saveGroupTextBtn",
@@ -252,9 +264,186 @@
       </div>
       <div class="engine-inline-chip chip-muted">
         <span class="label">Формат</span>
-        <span class="value">dns-groups v1</span>
+        <span class="value">${/(?:^|\n)# vpn-routing-ui dns-groups v2(?:\r?\n|$)/.test(state.text) ? "dns-groups v2" : "dns-groups v1"}</span>
       </div>
     `;
+  }
+
+  function formatVersionDate(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return raw;
+    return new Intl.DateTimeFormat("ru-RU", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    }).format(date);
+  }
+
+  function setVersionNote(id, kind, text) {
+    const node = $(id);
+    if (!node) return;
+    node.className = "dns-version-note" + (kind ? " " + kind : "");
+    node.textContent = text;
+  }
+
+  function renderSyncStatus(payload) {
+    const data = payload || {};
+    state.syncStatus = data;
+
+    const localVersionNode = $("localVersionValue");
+    if (localVersionNode) {
+      localVersionNode.textContent = data.localVersionKnown
+        ? formatVersionDate(data.localVersion)
+        : data.localChanged
+          ? "Не зафиксирована"
+          : "Не задана";
+    }
+    if (data.localVersionKnown) {
+      setVersionNote("localVersionState", "ok", "Текущий снимок учтён в системе версий");
+    } else if (data.localChanged) {
+      setVersionNote(
+        "localVersionState",
+        "warn",
+        "DNS-группы изменились. Нажми «Считать текущую версию», чтобы присвоить текущую секунду."
+      );
+    } else {
+      setVersionNote("localVersionState", "warn", "Считай текущую версию перед первой отправкой на GitHub");
+    }
+
+    const remoteVersionNode = $("remoteVersionValue");
+    if (remoteVersionNode) {
+      remoteVersionNode.textContent = data.remoteVersion ? formatVersionDate(data.remoteVersion) : "Недоступна";
+    }
+    if (data.remoteError) {
+      setVersionNote("remoteVersionState", "error", data.remoteError);
+    } else if (data.remoteVersion) {
+      const commit = String(data.remoteCommit || "").slice(0, 7);
+      setVersionNote("remoteVersionState", "ok", commit ? "Коммит " + commit : "Дата DNS-файла получена");
+    } else {
+      setVersionNote("remoteVersionState", "warn", "Версия DNS-файла ещё не получена");
+    }
+
+    if ($("syncRepositoryValue")) {
+      $("syncRepositoryValue").textContent = data.repository || "Не настроен";
+    }
+    if ($("syncRepositoryState")) {
+      $("syncRepositoryState").textContent = [data.branch, data.path].filter(Boolean).join(" · ") || "Укажи источник";
+    }
+    if ($("syncRepositoryInput")) $("syncRepositoryInput").value = data.repository || "";
+    if ($("syncBranchInput")) $("syncBranchInput").value = data.branch || "";
+    if ($("syncPathInput")) $("syncPathInput").value = data.path || "";
+    if ($("syncKeyInput")) $("syncKeyInput").value = data.key || "";
+    if ($("syncSecretInput")) {
+      $("syncSecretInput").value = "";
+      $("syncSecretInput").placeholder = data.secretConfigured
+        ? "Секрет сохранён — оставь пустым, чтобы не менять"
+        : "Введи Personal access token";
+    }
+    if ($("syncSecretState")) {
+      $("syncSecretState").textContent = data.secretConfigured
+        ? "Секрет сохранён на роутере и не возвращается в браузер."
+        : "Секрет ещё не задан. Нужен токен с доступом к содержимому репозитория.";
+    }
+  }
+
+  async function loadSyncStatus(options) {
+    const opts = options || {};
+    if (!opts.silent) setBusy(true);
+    try {
+      const data = await fetchJson(SYNC_API_URL + "?action=status", { cache: "no-store" });
+      renderSyncStatus(data);
+      return data;
+    } catch (error) {
+      setVersionNote("remoteVersionState", "error", "Не удалось прочитать версии: " + error.message);
+      if (!opts.silent) showBanner("error", "Не удалось прочитать версии DNS: " + error.message);
+      throw error;
+    } finally {
+      if (!opts.silent) setBusy(false);
+    }
+  }
+
+  async function recordCurrentVersion() {
+    return fetchJson(SYNC_API_URL + "?action=mark-current", { method: "POST" });
+  }
+
+  async function captureCurrentVersion() {
+    setBusy(true);
+    setProgress(20, "Считываем текущие DNS-группы");
+    showBanner("warn", "Фиксируем текущую версию роутера...");
+    try {
+      const data = await recordCurrentVersion();
+      setProgress(75, "Обновляем состояние версий");
+      await loadSyncStatus({ silent: true });
+      setProgress(100, "Текущая версия зафиксирована");
+      showBanner("ok", `${data.message || "Текущая версия зафиксирована."} ${formatVersionDate(data.localVersion)}`);
+      finishProgress();
+    } catch (error) {
+      clearProgress();
+      showBanner("error", error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveSyncSettings() {
+    const repository = ($("syncRepositoryInput") ? $("syncRepositoryInput").value : "").trim();
+    const branch = ($("syncBranchInput") ? $("syncBranchInput").value : "").trim();
+    const path = ($("syncPathInput") ? $("syncPathInput").value : "").trim();
+    const key = ($("syncKeyInput") ? $("syncKeyInput").value : "").trim();
+    const secret = ($("syncSecretInput") ? $("syncSecretInput").value : "").trim();
+    if (!repository || !branch || !path || !key) {
+      showBanner("error", "Заполни репозиторий, ветку, путь файла и ключ / логин GitHub.");
+      return;
+    }
+
+    setBusy(true);
+    showBanner("warn", "Сохраняем настройки GitHub...");
+    try {
+      const body = [
+        "repository=" + repository,
+        "branch=" + branch,
+        "path=" + path,
+        "key=" + key,
+        "secret=" + secret,
+      ].join("\n");
+      const data = await fetchJson(SYNC_API_URL + "?action=settings", {
+        method: "POST",
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+        body,
+      });
+      await loadSyncStatus({ silent: true });
+      showBanner("ok", data.message || "Настройки GitHub сохранены.");
+    } catch (error) {
+      showBanner("error", error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function syncDns() {
+    setBusy(true);
+    setProgress(8, "Шаг 1 из 4: читаем версии и DNS-группы");
+    showBanner("warn", "Сравниваем версию роутера с версией DNS-файла GitHub...");
+    try {
+      setProgress(28, "Шаг 2 из 4: выбираем более новую сторону");
+      const data = await fetchJson(SYNC_API_URL + "?action=sync", { method: "POST" });
+      setProgress(78, "Шаг 3 из 4: перечитываем DNS-группы");
+      await loadFromRouter();
+      await loadSyncStatus({ silent: true });
+      setProgress(100, "Шаг 4 из 4: синхронизация завершена");
+      showBanner("ok", data.message || "DNS-группы синхронизированы.");
+      finishProgress();
+    } catch (error) {
+      clearProgress();
+      showBanner("error", error.message);
+    } finally {
+      setBusy(false);
+    }
   }
 
   function renderGroupsTable() {
@@ -400,12 +589,19 @@
         headers: { "Content-Type": "text/plain; charset=utf-8" },
         body: serializeTransferText([group]),
       });
+      let versionNote = "";
+      try {
+        await recordCurrentVersion();
+        await loadSyncStatus({ silent: true });
+      } catch (versionError) {
+        versionNote = " Версию не удалось зафиксировать: " + versionError.message;
+      }
       setProgress(100, "Шаг 3 из 3: группа сохранена");
       showBanner(
         "ok",
         `${data.message || "DNS-группа сохранена на роутер."} ${group.description || group.groupId}: добавлено ${hostCountText(
           data.includesApplied || 0
-        )}, удалено ${hostCountText(data.includesRemoved || 0)}.`
+        )}, удалено ${hostCountText(data.includesRemoved || 0)}.${versionNote}`
       );
       finishProgress();
     } catch (error) {
@@ -563,11 +759,18 @@
         headers: { "Content-Type": "text/plain; charset=utf-8" },
         body: state.text,
       });
+      let versionNote = "";
+      try {
+        await recordCurrentVersion();
+        await loadSyncStatus({ silent: true });
+      } catch (versionError) {
+        versionNote = " Версию не удалось зафиксировать: " + versionError.message;
+      }
       setProgress(82, "Шаг 3 из 4: перечитываем DNS-файл с роутера");
       await loadFromRouter(
         `${data.message || "DNS-файл сохранён на роутер."} Обновлено групп: ${data.updatedGroups || 0}, создано: ${
           data.createdGroups || 0
-        }, добавлено ${hostCountText(data.includesApplied || 0)}, удалено ${hostCountText(data.includesRemoved || 0)}. Маршруты не изменялись.`
+        }, добавлено ${hostCountText(data.includesApplied || 0)}, удалено ${hostCountText(data.includesRemoved || 0)}. Маршруты не изменялись.${versionNote}`
       );
       setProgress(100, "Шаг 4 из 4: DNS-файл сохранён");
       finishProgress();
@@ -627,6 +830,10 @@
 
   document.addEventListener("DOMContentLoaded", function () {
     if ($("reloadBtn")) $("reloadBtn").addEventListener("click", () => loadFromRouter("DNS-файл перечитан с роутера."));
+    if ($("captureVersionBtn")) $("captureVersionBtn").addEventListener("click", captureCurrentVersion);
+    if ($("syncDnsBtn")) $("syncDnsBtn").addEventListener("click", syncDns);
+    if ($("refreshSyncStatusBtn")) $("refreshSyncStatusBtn").addEventListener("click", () => loadSyncStatus());
+    if ($("saveSyncSettingsBtn")) $("saveSyncSettingsBtn").addEventListener("click", saveSyncSettings);
     if ($("dnsText")) $("dnsText").addEventListener("input", readTextArea);
     if ($("copyTextBtn")) $("copyTextBtn").addEventListener("click", copyText);
     if ($("downloadTextBtn")) $("downloadTextBtn").addEventListener("click", downloadText);
@@ -662,6 +869,9 @@
         }
       });
     }
-    loadFromRouter();
+    loadFromRouter().then(
+      () => loadSyncStatus({ silent: true }).catch(() => {}),
+      () => loadSyncStatus({ silent: true }).catch(() => {})
+    );
   });
 })();

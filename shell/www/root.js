@@ -968,19 +968,19 @@
       ),
       quickCard(
         "DNS-группы",
-        "Один текстовый файл для переноса domain-list групп и DNS-маршрутов между роутерами.",
+        "Однокнопочная синхронизация domain-list групп с версионируемым DNS-файлом в GitHub.",
         `
           <div class="engine-inline-chip chip-muted">
             <span class="label">Формат</span>
-            <span class="value">dns-groups v1</span>
+            <span class="value">dns-groups v2</span>
           </div>
           <div class="engine-inline-chip chip-muted">
-            <span class="label">Имена групп</span>
-            <span class="value">сохраняются</span>
+            <span class="label">Версии</span>
+            <span class="value">до секунды</span>
           </div>
           <div class="engine-inline-chip chip-muted">
-            <span class="label">Импорт</span>
-            <span class="value">полная замена</span>
+            <span class="label">Направление</span>
+            <span class="value">автоматически</span>
           </div>
         `,
         `

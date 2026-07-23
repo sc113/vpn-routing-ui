@@ -15,7 +15,13 @@ query_value() {
 
 normalize_group_id() {
   case "$1" in
-    domain-list[0-9]*) printf '%s' "$1" ;;
+    domain-list*)
+      suffix=${1#domain-list}
+      case "$suffix" in
+        ""|*[!0-9]*) printf '' ;;
+        *) printf '%s' "$1" ;;
+      esac
+      ;;
     *) printf '' ;;
   esac
 }
@@ -158,8 +164,8 @@ read_running_config() {
 
 export_dns_groups() {
   : > "$EXPORT_FILE"
-  printf '# vpn-routing-ui dns-groups v1\n' >> "$EXPORT_FILE"
-  printf '# G|domain-listN|base64(name/description)|route-target-legacy-ignored\n' >> "$EXPORT_FILE"
+  printf '# vpn-routing-ui dns-groups v2\n' >> "$EXPORT_FILE"
+  printf '# G|domain-listN|name/description\n' >> "$EXPORT_FILE"
   printf '# I|domain-listN|include-value\n' >> "$EXPORT_FILE"
   printf '# generated %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date)" >> "$EXPORT_FILE"
 
@@ -227,7 +233,9 @@ export_dns_groups() {
       printf 'I|%s|%s\n' "$group_id" "$value" >> "$EXPORT_FILE"
       continue
     fi
-    printf 'G|%s|%s|\n' "$group_id" "$(b64_encode "$(strip_quotes "$marker")")" >> "$EXPORT_FILE"
+    description=$marker
+    [ -n "$value" ] && description="$description|$value"
+    printf 'G|%s|%s\n' "$group_id" "$(strip_quotes "$description")" >> "$EXPORT_FILE"
   done < "$EXPORT_RAW_FILE"
 }
 
@@ -237,10 +245,16 @@ parse_dns_group_file() {
   : > "$DESIRED_ROUTES_FILE"
   : > "$DESIRED_DESCRIPTIONS_FILE"
 
+  dns_format=1
+  if grep -Fq '# vpn-routing-ui dns-groups v2' "$INPUT_FILE"; then
+    dns_format=2
+  fi
+
   line_no=0
+  cr=$(printf '\r')
   while IFS= read -r line || [ -n "$line" ]; do
     line_no=$((line_no + 1))
-    line=$(printf '%s' "$line" | tr -d '\r')
+    line=${line%"$cr"}
     case "$line" in
       ""|\#*) continue ;;
     esac
@@ -251,15 +265,15 @@ parse_dns_group_file() {
       G)
         group_id=${rest%%|*}
         rest=${rest#*|}
-        raw_desc=${rest%%|*}
-        raw_route=
-        if [ "$rest" != "$raw_desc" ]; then
-          raw_route=${rest#*|}
-        fi
         group_id=$(normalize_group_id "$group_id")
         [ -n "$group_id" ] || fail "Некорректная DNS-группа в файле" "Строка $line_no: $line"
         route_target=""
-        description=$(b64_decode "$raw_desc")
+        if [ "$dns_format" = "2" ]; then
+          description=$rest
+        else
+          raw_desc=${rest%%|*}
+          description=$(b64_decode "$raw_desc")
+        fi
         awk -F'|' -v group_id="$group_id" '$1 != group_id { print $0 }' "$DESIRED_GROUPS_FILE" > "$DESIRED_GROUPS_FILE.tmp"
         mv "$DESIRED_GROUPS_FILE.tmp" "$DESIRED_GROUPS_FILE"
         printf '%s\n' "$group_id" >> "$DESIRED_GROUPS_FILE"
@@ -284,7 +298,7 @@ parse_dns_group_file() {
     esac
   done < "$INPUT_FILE"
 
-  [ -s "$DESIRED_GROUPS_FILE" ] || fail "В DNS-файле нет групп" "Ожидался формат vpn-routing-ui dns-groups v1."
+  [ -s "$DESIRED_GROUPS_FILE" ] || fail "В DNS-файле нет групп" "Ожидался формат vpn-routing-ui dns-groups v1 или v2."
   missing_include_group=$(awk -F'|' 'NR == FNR { groups[$1] = 1; next } !groups[$1] { print $1; exit }' "$DESIRED_GROUPS_FILE" "$DESIRED_INCLUDES_FILE")
   [ -z "$missing_include_group" ] || fail "Include ссылается на отсутствующую DNS-группу" "$missing_include_group"
   sort_group_ids_file "$DESIRED_GROUPS_FILE"
@@ -495,10 +509,6 @@ print_parsed_json() {
     "$group_count" "$include_count" "$route_count"
 }
 
-echo "Content-Type: application/json"
-echo "Cache-Control: no-store"
-echo ""
-
 PATH=/opt/sbin:/opt/bin:/opt/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PATH_HELPER=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)/bin/ui-paths.sh
@@ -527,6 +537,13 @@ mkdir -p "$PROFILE_DIR" "$BACKUP_DIR" /opt/tmp
 
 action=$(query_value action)
 
+if [ "$action" = "export-raw" ]; then
+  printf 'Content-Type: text/plain; charset=utf-8\n'
+else
+  printf 'Content-Type: application/json\n'
+fi
+printf 'Cache-Control: no-store\n\n'
+
 case "$action" in
   validate)
     cat > "$INPUT_FILE"
@@ -543,6 +560,12 @@ case "$action" in
     cat > "$INPUT_FILE"
     parse_dns_group_file
     apply_single_group
+    ;;
+  export-raw)
+    read_running_config
+    export_dns_groups
+    cat "$EXPORT_FILE"
+    cleanup
     ;;
   *)
     read_running_config
