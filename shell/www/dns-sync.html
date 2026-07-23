@@ -65,14 +65,11 @@
           <div class="dns-sync-summary-copy" aria-live="polite">
             <span id="syncBadge" class="dns-status-badge loading">Проверяем</span>
             <h2 id="syncHeadline">Сравниваем списки…</h2>
-            <p id="syncExplanation">Смотрим даты на роутере и в GitHub, чтобы выбрать свежую версию.</p>
-            <span id="syncLastRun" class="dns-last-sync">Последняя синхронизация: проверяем…</span>
+            <p id="syncExplanation">Смотрим даты на роутере и в GitHub. Обычное обновление всегда скачивает GitHub на роутер.</p>
+            <span id="syncLastRun" class="dns-last-sync">Последнее действие: проверяем…</span>
           </div>
           <div class="dns-sync-main-actions">
-            <button id="syncDnsBtn" class="dns-primary-action" type="button">Синхронизировать сейчас</button>
-            <button id="captureVersionBtn" class="dns-capture-action" type="button" hidden>
-              Считать изменения роутера новыми
-            </button>
+            <button id="syncDnsBtn" class="dns-primary-action" type="button" disabled>Скачать из GitHub на роутер</button>
             <button id="refreshSyncStatusBtn" class="dns-refresh-action" type="button">
               <span aria-hidden="true">↻</span>
               Проверить ещё раз
@@ -83,10 +80,10 @@
         <div class="dns-compare-block" aria-label="Сравнение версий">
           <div class="dns-compare-heading">
             <div>
-              <h3>Где хранится список</h3>
-              <p>Свежая сторона обновит вторую автоматически.</p>
+              <h3>Даты версий</h3>
+              <p>Они помогают ориентироваться, но не отправляют данные в GitHub автоматически.</p>
             </div>
-            <span id="syncDirectionLabel" class="dns-direction-label">Сравниваем даты</span>
+            <span id="syncDirectionLabel" class="dns-direction-label">Обычное действие: GitHub → роутер</span>
           </div>
 
           <div class="dns-compare-grid">
@@ -163,6 +160,39 @@
             <div class="dns-sync-settings-actions">
               <button id="saveSyncSettingsBtn" class="dns-settings-save" type="button">Сохранить и проверить</button>
               <span>Пустое поле токена не удаляет уже сохранённый токен.</span>
+            </div>
+          </div>
+        </details>
+
+        <details class="dns-sync-settings dns-publish-settings" id="dnsPublishDetails">
+          <summary>
+            <span class="dns-settings-summary-icon dns-publish-summary-icon" aria-hidden="true">↑</span>
+            <span class="dns-settings-summary-copy">
+              <strong>Отправить роутер в GitHub</strong>
+              <small id="publishSettingsSummary">Только если именно список роутера нужно сделать основной версией</small>
+            </span>
+            <span class="dns-settings-badge exception">Редкое действие</span>
+          </summary>
+
+          <div class="dns-publish-body">
+            <div class="dns-publish-warning">
+              <span class="dns-publish-warning-icon" aria-hidden="true">!</span>
+              <span>
+                <strong>GitHub никогда не перезаписывается обычным обновлением</strong>
+                <small>
+                  Кнопка ниже — единственный способ отправить список с роутера. Используйте её только когда уверены,
+                  что локальная версия правильная.
+                </small>
+              </span>
+            </div>
+            <p id="publishLocalState" class="dns-publish-state">Проверяем локальную версию…</p>
+            <div class="dns-publish-actions">
+              <button id="captureVersionBtn" class="dns-capture-action" type="button" hidden>
+                Присвоить текущую дату
+              </button>
+              <button id="uploadDnsBtn" class="dns-upload-action" type="button" disabled>
+                Отправить текущий список в GitHub
+              </button>
             </div>
           </div>
         </details>

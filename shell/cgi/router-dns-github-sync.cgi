@@ -345,14 +345,6 @@ fetch_remote_file() {
   fi
 }
 
-compare_versions() {
-  awk -v left="$1" -v right="$2" 'BEGIN {
-    if (left == right) print 0
-    else if (left > right) print 1
-    else print -1
-  }'
-}
-
 apply_remote_file() {
   content_length=$(wc -c < "$REMOTE_FILE" | tr -d ' ')
   QUERY_STRING=action=apply \
@@ -514,14 +506,11 @@ mark_current_version() {
   cleanup
 }
 
-sync_dns() {
+download_dns() {
   require_post
   acquire_lock
   export_local_dns
   current_hash=$(hash_dns_file "$LOCAL_FILE")
-  if [ -n "$LOCAL_HASH" ] && [ "$LOCAL_HASH" != "$current_hash" ]; then
-    fail "Текущие DNS-группы изменены вне учёта версий" "Нажми «Считать текущую версию», затем снова «Обновить»."
-  fi
 
   fetch_remote_file
   if ! fetch_remote_version; then
@@ -541,37 +530,54 @@ sync_dns() {
     exit 0
   fi
 
-  if [ -z "$LOCAL_VERSION" ]; then
-    direction="download"
-  else
-    version_order=$(compare_versions "$LOCAL_VERSION" "$REMOTE_VERSION")
-    case "$version_order" in
-      1) direction="upload" ;;
-      -1) direction="download" ;;
-      *) fail "Одинаковая дата, но разное содержимое DNS" "Зафиксируй нужную локальную версию заново или измени файл в GitHub отдельным коммитом." ;;
-    esac
-  fi
-
-  case "$direction" in
-    upload)
-      LOCAL_HASH="$current_hash"
-      push_local_file
-      LOCAL_VERSION="$REMOTE_VERSION"
-      message="Более новая версия роутера отправлена в GitHub."
-      ;;
-    download)
-      apply_remote_file
-      LOCAL_HASH="$remote_hash"
-      LOCAL_VERSION="$REMOTE_VERSION"
-      message="Более новая версия GitHub скачана; DNS-группы построены на роутере."
-      ;;
-  esac
-
-  LAST_DIRECTION="$direction"
+  apply_remote_file
+  LOCAL_HASH="$remote_hash"
+  LOCAL_VERSION="$REMOTE_VERSION"
+  LAST_DIRECTION="download"
   LAST_SYNC=$(now_iso)
   save_state
-  printf '{"ok":true,"direction":"%s","message":"%s","localVersion":"%s","remoteVersion":"%s"}' \
-    "$direction" "$(json_escape "$message")" "$(json_escape "$LOCAL_VERSION")" "$(json_escape "$REMOTE_VERSION")"
+  printf '{"ok":true,"direction":"download","message":"Версия GitHub скачана; DNS-группы построены на роутере. Локальная дата не использовалась для выбора направления.","localVersion":"%s","remoteVersion":"%s"}' \
+    "$(json_escape "$LOCAL_VERSION")" "$(json_escape "$REMOTE_VERSION")"
+  cleanup
+}
+
+upload_dns() {
+  require_post
+  acquire_lock
+  export_local_dns
+  current_hash=$(hash_dns_file "$LOCAL_FILE")
+  if [ -z "$LOCAL_HASH" ] || [ "$LOCAL_HASH" != "$current_hash" ]; then
+    fail "На роутере есть изменения без подтверждённой даты" "Сначала нажми «Присвоить текущую дату» в блоке отправки в GitHub."
+  fi
+  [ -n "$LOCAL_VERSION" ] ||
+    fail "Локальная версия ещё не зафиксирована" "Сначала нажми «Присвоить текущую дату» в блоке отправки в GitHub."
+
+  fetch_remote_file
+  if ! fetch_remote_version; then
+    fail "Не удалось получить версию DNS-файла GitHub" "$GITHUB_ERROR"
+  fi
+  remote_hash=$(hash_dns_file "$REMOTE_FILE")
+
+  if [ "$current_hash" = "$remote_hash" ]; then
+    LOCAL_HASH="$current_hash"
+    LOCAL_VERSION="$REMOTE_VERSION"
+    LAST_DIRECTION="equal"
+    LAST_SYNC=$(now_iso)
+    save_state
+    printf '{"ok":true,"direction":"equal","message":"DNS-группы на роутере и в GitHub уже совпадают. Новый коммит не создан.","localVersion":"%s","remoteVersion":"%s"}' \
+      "$(json_escape "$LOCAL_VERSION")" "$(json_escape "$REMOTE_VERSION")"
+    cleanup
+    exit 0
+  fi
+
+  LOCAL_HASH="$current_hash"
+  push_local_file
+  LOCAL_VERSION="$REMOTE_VERSION"
+  LAST_DIRECTION="upload"
+  LAST_SYNC=$(now_iso)
+  save_state
+  printf '{"ok":true,"direction":"upload","message":"Текущий список роутера явно отправлен в GitHub отдельным коммитом.","localVersion":"%s","remoteVersion":"%s"}' \
+    "$(json_escape "$LOCAL_VERSION")" "$(json_escape "$REMOTE_VERSION")"
   cleanup
 }
 
@@ -619,8 +625,11 @@ case "$action" in
   mark-current)
     mark_current_version
     ;;
-  sync)
-    sync_dns
+  download|sync)
+    download_dns
+    ;;
+  upload)
+    upload_dns
     ;;
   ""|status)
     export_local_dns

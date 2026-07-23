@@ -8,6 +8,7 @@
     progress: null,
     syncStatus: null,
     syncBlocked: true,
+    uploadBlocked: true,
   };
   let progressClearTimer = 0;
 
@@ -231,6 +232,7 @@
       "applyTextBtn",
       "addGroupBtn",
       "captureVersionBtn",
+      "uploadDnsBtn",
       "syncDnsBtn",
       "refreshSyncStatusBtn",
       "saveSyncSettingsBtn",
@@ -250,6 +252,9 @@
     });
     if ($("syncDnsBtn")) {
       $("syncDnsBtn").disabled = busy || state.syncBlocked;
+    }
+    if ($("uploadDnsBtn")) {
+      $("uploadDnsBtn").disabled = busy || state.uploadBlocked;
     }
     if ($("dnsText")) $("dnsText").disabled = busy;
   }
@@ -315,9 +320,11 @@
     if (icon) icon.textContent = data.icon || "✓";
     if ($("syncHeadline")) $("syncHeadline").textContent = data.headline || "Можно синхронизировать";
     if ($("syncExplanation")) $("syncExplanation").textContent = data.explanation || "";
-    if ($("syncDirectionLabel")) $("syncDirectionLabel").textContent = data.directionLabel || "Сравниваем даты";
-    if ($("syncDirectionIcon")) $("syncDirectionIcon").textContent = data.directionIcon || "↔";
-    if ($("syncDnsBtn")) $("syncDnsBtn").textContent = data.buttonText || "Синхронизировать сейчас";
+    if ($("syncDirectionLabel")) {
+      $("syncDirectionLabel").textContent = data.directionLabel || "Обычное действие: GitHub → роутер";
+    }
+    if ($("syncDirectionIcon")) $("syncDirectionIcon").textContent = data.directionIcon || "←";
+    if ($("syncDnsBtn")) $("syncDnsBtn").textContent = data.buttonText || "Скачать из GitHub на роутер";
 
     state.syncBlocked = Boolean(data.blocked);
     if ($("syncDnsBtn")) $("syncDnsBtn").disabled = state.loading || state.syncBlocked;
@@ -398,14 +405,42 @@
     }
     if ($("syncLastRun")) {
       $("syncLastRun").textContent = data.lastSync
-        ? "Последняя синхронизация: " + formatVersionDate(data.lastSync)
-        : "Синхронизация ещё не запускалась";
+        ? "Последнее действие: " + formatVersionDate(data.lastSync)
+        : "Действия с GitHub ещё не выполнялись";
     }
 
+    const needsCapture = Boolean(data.localChanged || !data.localVersionKnown);
     const captureButton = $("captureVersionBtn");
     if (captureButton) {
-      captureButton.hidden = !data.localChanged;
+      captureButton.hidden = !needsCapture;
+      captureButton.textContent = data.localChanged
+        ? "Присвоить изменениям текущую дату"
+        : "Присвоить роутеру текущую дату";
     }
+    if ($("publishLocalState")) {
+      if (!data.secretConfigured) {
+        $("publishLocalState").className = "dns-publish-state warn";
+        $("publishLocalState").textContent = "Сначала подключите GitHub.";
+      } else if (data.remoteError) {
+        $("publishLocalState").className = "dns-publish-state warn";
+        $("publishLocalState").textContent = "Сначала восстановите соединение с GitHub.";
+      } else if (needsCapture) {
+        $("publishLocalState").className = "dns-publish-state warn";
+        $("publishLocalState").textContent =
+          "Перед отправкой нужно явно присвоить текущему списку дату этой секунды.";
+      } else {
+        $("publishLocalState").className = "dns-publish-state ok";
+        $("publishLocalState").textContent =
+          "Локальная версия зафиксирована: " + formatVersionDate(data.localVersion) + ".";
+      }
+    }
+    if ($("publishSettingsSummary")) {
+      $("publishSettingsSummary").textContent = needsCapture
+        ? "Сначала подтвердите дату локального списка"
+        : "Локальная версия: " + formatVersionDate(data.localVersion);
+    }
+    state.uploadBlocked = Boolean(!data.secretConfigured || needsCapture || data.remoteError);
+    if ($("uploadDnsBtn")) $("uploadDnsBtn").disabled = state.loading || state.uploadBlocked;
 
     if (!data.secretConfigured) {
       setSyncPresentation({
@@ -414,26 +449,10 @@
         badge: "Нужна настройка",
         icon: "!",
         headline: "Подключите GitHub",
-        explanation: "Укажите токен в настройках ниже. После этого всё будет обновляться одной кнопкой.",
+        explanation: "Укажите токен в настройках ниже. Обычное обновление будет скачивать список на роутер.",
         directionLabel: "GitHub не подключён",
         buttonText: "Сначала подключите GitHub",
         blocked: true,
-      });
-      return;
-    }
-
-    if (data.localChanged) {
-      setSyncPresentation({
-        state: "action",
-        badgeKind: "action",
-        badge: "Найдены изменения",
-        icon: "!",
-        headline: "На роутере есть новые изменения",
-        explanation: "Подтвердите их текущей датой, затем отправьте в GitHub обычной синхронизацией.",
-        directionLabel: "Сначала подтвердите роутер",
-        buttonText: "Сначала подтвердите изменения",
-        blocked: true,
-        attentionCard: "localVersionCard",
       });
       return;
     }
@@ -445,10 +464,29 @@
         badge: "GitHub недоступен",
         icon: "!",
         headline: "Не удалось проверить GitHub",
-        explanation: "Проверьте репозиторий, токен или интернет-соединение и повторите попытку.",
-        directionLabel: "Нет данных GitHub",
-        buttonText: "Повторить синхронизацию",
+        explanation: "Проверьте репозиторий, токен или интернет-соединение и попробуйте скачать ещё раз.",
+        directionLabel: "GitHub → роутер",
+        directionIcon: "←",
+        buttonText: "Попробовать скачать ещё раз",
         blocked: false,
+      });
+      return;
+    }
+
+    if (data.localChanged) {
+      setSyncPresentation({
+        state: "action",
+        badgeKind: "action",
+        badge: "Локальная дата не точна",
+        icon: "↓",
+        headline: "Можно намеренно взять версию GitHub",
+        explanation:
+          "Скачивание проигнорирует локальную дату и заменит DNS-списки содержимым GitHub. Перед заменой будет подтверждение.",
+        directionLabel: "Принудительно: GitHub → роутер",
+        directionIcon: "←",
+        buttonText: "Скачать GitHub, отбросив локальные изменения",
+        blocked: false,
+        attentionCard: "localVersionCard",
       });
       return;
     }
@@ -457,13 +495,13 @@
       setSyncPresentation({
         state: "action",
         badgeKind: "action",
-        badge: "Можно обновить",
+        badge: "GitHub — источник",
         icon: "↓",
-        headline: "Готовы загрузить список из GitHub",
-        explanation: "На роутере ещё нет учтённой версии. GitHub станет источником для первого обновления.",
+        headline: "Загрузить сохранённую версию из GitHub",
+        explanation: "На роутере ещё нет подтверждённой даты. Список GitHub можно применить независимо от неё.",
         directionLabel: "GitHub → роутер",
         directionIcon: "←",
-        buttonText: "Загрузить список из GitHub",
+        buttonText: "Скачать из GitHub на роутер",
         blocked: false,
         newerCard: "remoteVersionCard",
       });
@@ -475,13 +513,14 @@
       setSyncPresentation({
         state: "action",
         badgeKind: "action",
-        badge: "Роутер свежее",
-        icon: "↑",
-        headline: "Отправить изменения в GitHub",
-        explanation: "Версия роутера новее. GitHub будет обновлён, настройки маршрутов не изменятся.",
-        directionLabel: "Роутер → GitHub",
-        directionIcon: "→",
-        buttonText: "Отправить свежий список в GitHub",
+        badge: "Роутер новее по дате",
+        icon: "↓",
+        headline: "Автоотправка в GitHub отключена",
+        explanation:
+          "Обычная кнопка не перезапишет GitHub. Если локальная дата ошибочна, можно намеренно скачать GitHub на роутер.",
+        directionLabel: "Безопасное действие: GitHub → роутер",
+        directionIcon: "←",
+        buttonText: "Всё равно скачать из GitHub",
         blocked: false,
         newerCard: "localVersionCard",
       });
@@ -494,11 +533,11 @@
         badgeKind: "action",
         badge: "GitHub свежее",
         icon: "↓",
-        headline: "Загрузить изменения на роутер",
-        explanation: "Версия GitHub новее. Роутер построит из неё DNS-группы автоматически.",
+        headline: "В GitHub есть более новая версия",
+        explanation: "Скачайте её — роутер построит DNS-группы автоматически, не меняя назначенные маршруты.",
         directionLabel: "GitHub → роутер",
         directionIcon: "←",
-        buttonText: "Загрузить свежий список на роутер",
+        buttonText: "Скачать обновление из GitHub",
         blocked: false,
         newerCard: "remoteVersionCard",
       });
@@ -508,13 +547,13 @@
     setSyncPresentation({
       state: "equal",
       badgeKind: "ready",
-      badge: "Всё актуально",
-      icon: "✓",
-      headline: "Списки синхронизированы",
-      explanation: "По датам версии совпадают. Можно проверить содержимое ещё раз в любой момент.",
-      directionLabel: "Версии одной даты",
-      directionIcon: "↔",
-      buttonText: "Проверить и синхронизировать",
+      badge: "Даты совпадают",
+      icon: "↓",
+      headline: "Можно перечитать версию GitHub",
+      explanation: "Если содержимое уже совпадает, ничего не изменится. Если различается — версия GitHub станет основной.",
+      directionLabel: "GitHub → роутер",
+      directionIcon: "←",
+      buttonText: "Проверить и скачать из GitHub",
       blocked: false,
     });
   }
@@ -528,6 +567,8 @@
       return data;
     } catch (error) {
       setVersionNote("remoteVersionState", "error", "Не удалось прочитать версии: " + error.message);
+      state.uploadBlocked = true;
+      if ($("uploadDnsBtn")) $("uploadDnsBtn").disabled = true;
       setSyncPresentation({
         state: "error",
         badgeKind: "error",
@@ -535,8 +576,9 @@
         icon: "!",
         headline: "Не удалось проверить списки",
         explanation: "Соединение с роутером или GitHub прервалось. Нажмите «Проверить ещё раз».",
-        directionLabel: "Проверка не завершена",
-        buttonText: "Повторить синхронизацию",
+        directionLabel: "GitHub → роутер",
+        directionIcon: "←",
+        buttonText: "Попробовать скачать ещё раз",
         blocked: false,
       });
       if (!opts.silent) showBanner("error", "Не удалось прочитать версии DNS: " + error.message);
@@ -605,18 +647,67 @@
     }
   }
 
-  async function syncDns() {
+  async function downloadDns() {
+    const status = state.syncStatus || {};
+    const localLooksNewer =
+      status.localVersionKnown && status.remoteVersion && compareVersionDates(status.localVersion, status.remoteVersion) > 0;
+    const localIsUntracked = Boolean(status.localChanged);
+    if (
+      (localLooksNewer || localIsUntracked) &&
+      !window.confirm(
+        localIsUntracked
+          ? "На роутере есть изменения, которых нет в сохранённой локальной версии. Скачать файл GitHub и заменить им текущие DNS-списки? Перед изменением создаётся backup running-config. VPN-профили и DNS-маршруты не изменятся."
+          : "По дате версия роутера новее GitHub. Всё равно скачать GitHub и сделать его содержимое основной версией DNS-списков? Перед изменением создаётся backup running-config. VPN-профили и DNS-маршруты не изменятся."
+      )
+    ) {
+      return;
+    }
+
     setBusy(true);
-    setProgress(8, "Шаг 1 из 4: читаем версии и DNS-группы");
-    showBanner("warn", "Сравниваем версию роутера с версией DNS-файла GitHub...");
+    setProgress(8, "Шаг 1 из 4: скачиваем DNS-файл GitHub");
+    showBanner("warn", "Скачиваем версию GitHub. Локальная дата не выбирает направление...");
     try {
-      setProgress(28, "Шаг 2 из 4: выбираем более новую сторону");
-      const data = await fetchJson(SYNC_API_URL + "?action=sync", { method: "POST" });
+      setProgress(28, "Шаг 2 из 4: проверяем и применяем файл");
+      const data = await fetchJson(SYNC_API_URL + "?action=download", { method: "POST" });
       setProgress(78, "Шаг 3 из 4: перечитываем DNS-группы");
       await loadFromRouter();
       await loadSyncStatus({ silent: true });
-      setProgress(100, "Шаг 4 из 4: синхронизация завершена");
-      showBanner("ok", data.message || "DNS-группы синхронизированы.");
+      setProgress(100, "Шаг 4 из 4: версия GitHub применена");
+      showBanner("ok", data.message || "Версия GitHub применена на роутере.");
+      finishProgress();
+    } catch (error) {
+      clearProgress();
+      showBanner("error", error.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function uploadDns() {
+    const status = state.syncStatus || {};
+    if (status.localChanged || !status.localVersionKnown) {
+      showBanner("error", "Сначала присвойте текущему списку дату, затем повторите отправку.");
+      if ($("dnsPublishDetails")) $("dnsPublishDetails").open = true;
+      return;
+    }
+    if (
+      !window.confirm(
+        "Отправить текущие DNS-списки роутера в GitHub? Файл в репозитории будет заменён и появится новый коммит. Используйте это только если точно уверены, что версия роутера правильная."
+      )
+    ) {
+      return;
+    }
+
+    setBusy(true);
+    setProgress(8, "Шаг 1 из 4: читаем список роутера");
+    showBanner("warn", "Явно отправляем текущий список роутера в GitHub...");
+    try {
+      setProgress(30, "Шаг 2 из 4: проверяем файл GitHub");
+      const data = await fetchJson(SYNC_API_URL + "?action=upload", { method: "POST" });
+      setProgress(78, "Шаг 3 из 4: обновляем даты версий");
+      await loadSyncStatus({ silent: true });
+      setProgress(100, "Шаг 4 из 4: отправка завершена");
+      showBanner("ok", data.message || "Текущий список роутера отправлен в GitHub.");
       finishProgress();
     } catch (error) {
       clearProgress();
@@ -1013,7 +1104,8 @@
   document.addEventListener("DOMContentLoaded", function () {
     if ($("reloadBtn")) $("reloadBtn").addEventListener("click", () => loadFromRouter("DNS-файл перечитан с роутера."));
     if ($("captureVersionBtn")) $("captureVersionBtn").addEventListener("click", captureCurrentVersion);
-    if ($("syncDnsBtn")) $("syncDnsBtn").addEventListener("click", syncDns);
+    if ($("syncDnsBtn")) $("syncDnsBtn").addEventListener("click", downloadDns);
+    if ($("uploadDnsBtn")) $("uploadDnsBtn").addEventListener("click", uploadDns);
     if ($("refreshSyncStatusBtn")) $("refreshSyncStatusBtn").addEventListener("click", () => loadSyncStatus());
     if ($("saveSyncSettingsBtn")) $("saveSyncSettingsBtn").addEventListener("click", saveSyncSettings);
     if ($("dnsText")) $("dnsText").addEventListener("input", readTextArea);

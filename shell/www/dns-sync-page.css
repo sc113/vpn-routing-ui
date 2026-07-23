@@ -506,6 +506,12 @@
   color: #ffdda2;
 }
 
+.dns-settings-badge.exception {
+  border-color: rgba(248, 113, 113, 0.28);
+  background: rgba(159, 42, 57, 0.1);
+  color: #ffb7b7;
+}
+
 .dns-settings-body {
   padding: 0 22px 22px;
 }
@@ -556,6 +562,105 @@
 
 .dns-settings-save {
   min-height: 42px;
+}
+
+.dns-publish-settings {
+  background: rgba(54, 16, 24, 0.1);
+}
+
+.dns-publish-summary-icon {
+  background: rgba(159, 42, 57, 0.12);
+  color: #ffabab;
+}
+
+.dns-publish-body {
+  padding: 0 22px 22px;
+}
+
+.dns-publish-warning {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 13px 14px;
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  border-radius: 13px;
+  background: rgba(120, 24, 38, 0.12);
+}
+
+.dns-publish-warning-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: rgba(248, 113, 113, 0.13);
+  color: #ffabab;
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.dns-publish-warning strong,
+.dns-publish-warning small {
+  display: block;
+}
+
+.dns-publish-warning strong {
+  color: #ffd1d1;
+  font-size: 13px;
+}
+
+.dns-publish-warning small {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.dns-publish-state {
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.dns-publish-state.ok {
+  color: #9debdc;
+}
+
+.dns-publish-state.warn {
+  color: #ffd28b;
+}
+
+.dns-publish-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.dns-publish-actions button {
+  min-height: 42px;
+}
+
+.dns-upload-action {
+  border: 1px solid rgba(248, 113, 113, 0.43);
+  background: linear-gradient(135deg, #bd4050, #8f2634);
+  color: #fff4f5;
+  box-shadow: 0 9px 20px rgba(111, 20, 34, 0.2);
+  font-weight: 900;
+}
+
+.dns-upload-action:hover {
+  background: linear-gradient(135deg, #d14c5d, #a02c3b);
+}
+
+.dns-upload-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  box-shadow: none;
 }
 
 .dns-lists-panel {
@@ -877,6 +982,10 @@
     padding: 0 16px 18px;
   }
 
+  .dns-publish-body {
+    padding: 0 16px 18px;
+  }
+
   .dns-sync-settings-grid {
     grid-template-columns: 1fr;
   }
@@ -886,6 +995,14 @@
   }
 
   .dns-settings-save {
+    width: 100%;
+  }
+
+  .dns-publish-actions {
+    display: grid;
+  }
+
+  .dns-publish-actions button {
     width: 100%;
   }
 }
