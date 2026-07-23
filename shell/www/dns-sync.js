@@ -307,6 +307,24 @@
     return leftTime > rightTime ? 1 : -1;
   }
 
+  function renderCompletedSyncAction(previousStatus, result, fallbackDirection) {
+    const previous = previousStatus || {};
+    const data = result || {};
+    const completedStatus = Object.assign({}, previous, {
+      secretConfigured: Boolean(previous.secretConfigured),
+      localVersion: data.localVersion || previous.localVersion || "",
+      localVersionKnown: true,
+      localChanged: false,
+      remoteVersion: data.remoteVersion || previous.remoteVersion || "",
+      remoteCommit: data.remoteCommit || previous.remoteCommit || "",
+      remoteError: "",
+      lastDirection: data.direction || fallbackDirection || previous.lastDirection || "",
+      lastSync: data.lastSync || new Date().toISOString(),
+    });
+    renderSyncStatus(completedStatus);
+    return completedStatus;
+  }
+
   function setSyncPresentation(options) {
     const data = options || {};
     const hub = $("dnsSyncHub");
@@ -563,6 +581,11 @@
     if (!opts.silent) setBusy(true);
     try {
       const data = await fetchJson(SYNC_API_URL + "?action=status", { cache: "no-store" });
+      if (state.syncStatus && state.syncStatus.secretConfigured && !data.secretConfigured) {
+        throw new Error(
+          "Роутер временно не вернул сохранённое подключение GitHub. Настройки и токен не изменялись."
+        );
+      }
       renderSyncStatus(data);
       return data;
     } catch (error) {
@@ -671,7 +694,7 @@
       const data = await fetchJson(SYNC_API_URL + "?action=download", { method: "POST" });
       setProgress(78, "Шаг 3 из 4: перечитываем DNS-группы");
       await loadFromRouter();
-      await loadSyncStatus({ silent: true });
+      renderCompletedSyncAction(status, data, "download");
       setProgress(100, "Шаг 4 из 4: версия GitHub применена");
       showBanner("ok", data.message || "Версия GitHub применена на роутере.");
       finishProgress();
@@ -705,7 +728,7 @@
       setProgress(30, "Шаг 2 из 4: проверяем файл GitHub");
       const data = await fetchJson(SYNC_API_URL + "?action=upload", { method: "POST" });
       setProgress(78, "Шаг 3 из 4: обновляем даты версий");
-      await loadSyncStatus({ silent: true });
+      renderCompletedSyncAction(status, data, "upload");
       setProgress(100, "Шаг 4 из 4: отправка завершена");
       showBanner("ok", data.message || "Текущий список роутера отправлен в GitHub.");
       finishProgress();

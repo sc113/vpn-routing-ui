@@ -128,6 +128,31 @@ json_first_string() {
   ' "$file" 2>/dev/null
 }
 
+json_nth_string() {
+  field="$1"
+  wanted="$2"
+  file="$3"
+  awk -v needle="\"$field\"" -v wanted="$wanted" '
+  {
+    rest = $0
+    while ((position = index(rest, needle)) > 0) {
+      rest = substr(rest, position + length(needle))
+      if (rest ~ /^[[:space:]]*:[[:space:]]*"/) {
+        candidate = rest
+        sub(/^[[:space:]]*:[[:space:]]*"/, "", candidate)
+        split(candidate, parts, "\"")
+        seen++
+        if (seen == wanted) {
+          print parts[1]
+          exit
+        }
+      }
+      rest = substr(rest, 2)
+    }
+  }
+  ' "$file" 2>/dev/null
+}
+
 load_config() {
   CONFIG_REPOSITORY=$(config_value repository "$CONFIG_FILE")
   CONFIG_BRANCH=$(config_value branch "$CONFIG_FILE")
@@ -376,8 +401,13 @@ push_local_file() {
     fail "Не удалось отправить DNS-файл в GitHub" "$(cat "$CHILD_FILE" "$RESPONSE_FILE" 2>/dev/null | head -c 800)"
   fi
   new_blob=$(json_first_string sha "$RESPONSE_FILE")
+  new_commit=$(json_nth_string sha 2 "$RESPONSE_FILE")
+  new_version=$(json_first_string date "$RESPONSE_FILE")
   [ -n "$new_blob" ] && REMOTE_BLOB="$new_blob"
-  if ! fetch_remote_version; then
+  if [ -n "$new_commit" ] && [ -n "$new_version" ]; then
+    REMOTE_COMMIT="$new_commit"
+    REMOTE_VERSION="$new_version"
+  elif ! fetch_remote_version; then
     REMOTE_VERSION="$LOCAL_VERSION"
   fi
 }
@@ -524,8 +554,9 @@ download_dns() {
     LAST_DIRECTION="equal"
     LAST_SYNC=$(now_iso)
     save_state
-    printf '{"ok":true,"direction":"equal","message":"DNS-группы на роутере и в GitHub уже совпадают.","localVersion":"%s","remoteVersion":"%s"}' \
-      "$(json_escape "$LOCAL_VERSION")" "$(json_escape "$REMOTE_VERSION")"
+    printf '{"ok":true,"direction":"equal","message":"DNS-группы на роутере и в GitHub уже совпадают.","localVersion":"%s","remoteVersion":"%s","remoteCommit":"%s","lastSync":"%s"}' \
+      "$(json_escape "$LOCAL_VERSION")" "$(json_escape "$REMOTE_VERSION")" \
+      "$(json_escape "$REMOTE_COMMIT")" "$(json_escape "$LAST_SYNC")"
     cleanup
     exit 0
   fi
@@ -536,8 +567,9 @@ download_dns() {
   LAST_DIRECTION="download"
   LAST_SYNC=$(now_iso)
   save_state
-  printf '{"ok":true,"direction":"download","message":"Версия GitHub скачана; DNS-группы построены на роутере. Локальная дата не использовалась для выбора направления.","localVersion":"%s","remoteVersion":"%s"}' \
-    "$(json_escape "$LOCAL_VERSION")" "$(json_escape "$REMOTE_VERSION")"
+  printf '{"ok":true,"direction":"download","message":"Версия GitHub скачана; DNS-группы построены на роутере. Локальная дата не использовалась для выбора направления.","localVersion":"%s","remoteVersion":"%s","remoteCommit":"%s","lastSync":"%s"}' \
+    "$(json_escape "$LOCAL_VERSION")" "$(json_escape "$REMOTE_VERSION")" \
+    "$(json_escape "$REMOTE_COMMIT")" "$(json_escape "$LAST_SYNC")"
   cleanup
 }
 
@@ -564,8 +596,9 @@ upload_dns() {
     LAST_DIRECTION="equal"
     LAST_SYNC=$(now_iso)
     save_state
-    printf '{"ok":true,"direction":"equal","message":"DNS-группы на роутере и в GitHub уже совпадают. Новый коммит не создан.","localVersion":"%s","remoteVersion":"%s"}' \
-      "$(json_escape "$LOCAL_VERSION")" "$(json_escape "$REMOTE_VERSION")"
+    printf '{"ok":true,"direction":"equal","message":"DNS-группы на роутере и в GitHub уже совпадают. Новый коммит не создан.","localVersion":"%s","remoteVersion":"%s","remoteCommit":"%s","lastSync":"%s"}' \
+      "$(json_escape "$LOCAL_VERSION")" "$(json_escape "$REMOTE_VERSION")" \
+      "$(json_escape "$REMOTE_COMMIT")" "$(json_escape "$LAST_SYNC")"
     cleanup
     exit 0
   fi
@@ -576,8 +609,9 @@ upload_dns() {
   LAST_DIRECTION="upload"
   LAST_SYNC=$(now_iso)
   save_state
-  printf '{"ok":true,"direction":"upload","message":"Текущий список роутера явно отправлен в GitHub отдельным коммитом.","localVersion":"%s","remoteVersion":"%s"}' \
-    "$(json_escape "$LOCAL_VERSION")" "$(json_escape "$REMOTE_VERSION")"
+  printf '{"ok":true,"direction":"upload","message":"Текущий список роутера явно отправлен в GitHub отдельным коммитом.","localVersion":"%s","remoteVersion":"%s","remoteCommit":"%s","lastSync":"%s"}' \
+    "$(json_escape "$LOCAL_VERSION")" "$(json_escape "$REMOTE_VERSION")" \
+    "$(json_escape "$REMOTE_COMMIT")" "$(json_escape "$LAST_SYNC")"
   cleanup
 }
 
