@@ -5254,7 +5254,7 @@ function runPostSaveDnsRefresh(hasDnsRoutes) {
     return Promise.resolve(null);
   }
 
-  return fetchJson("/cgi-bin/dns-route-refresh.cgi", {
+  return fetchJson("/cgi-bin/dns-route-refresh.cgi?mode=intercept-only", {
     method: "POST",
     cache: "no-store",
   });
@@ -5345,9 +5345,9 @@ function runPostSaveMaintenance(profiles, hasDnsRoutes, options) {
       summary.vpn = vpnResult || null;
       setSaveProgress(
         90,
-        hasDnsRoutes ? progressStep(9, 10, "пересобираем live DNS") : progressStep(9, 10, "пропускаем DNS reset"),
+        hasDnsRoutes ? progressStep(9, 10, "обновляем DNS-кэш") : progressStep(9, 10, "пропускаем DNS reset"),
         hasDnsRoutes
-          ? "Пересобираем live DNS-маршруты и перезапускаем dns-proxy intercept."
+          ? "Маршруты уже применены и проверены. Быстро перезапускаем только dns-proxy intercept без повторной пересборки всех списков."
           : "DNS-маршруты не заданы, поэтому DNS reset не нужен."
       );
       return runPostSaveDnsRefresh(hasDnsRoutes);
@@ -5465,7 +5465,9 @@ function saveEverything() {
     setSaveProgress(
       56,
       progressStep(6, 10, "применяем DNS-маршруты"),
-      "Отправляем назначение domain-list групп в ProxyN или прямой ISP-маршрут."
+      "Применяем " +
+        getDnsRoutes().length +
+        " назначений по очереди. При массовой смене всех списков Keenetic может выполнять этот шаг около двух минут."
     );
     return fetchJson("/cgi-bin/router-dns-routes-sync.cgi", {
       method: "POST",

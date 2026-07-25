@@ -4,6 +4,11 @@ json_escape() {
   printf '%s' "$1" | sed ':a;N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\r/\\r/g;s/\n/\\n/g'
 }
 
+query_value() {
+  key="$1"
+  printf '%s' "${QUERY_STRING:-}" | tr '&' '\n' | awk -F= -v key="$key" '$1 == key { print $2; exit }'
+}
+
 cleanup() {
   rm -f "$RUNCFG_FILE" "$ROUTES_FILE" "$DESIRED_FILE" "$EXPECTED_FILE" "$VERIFY_FILE" "$VERIFY_FILE.routes" "$WARM_GROUPS_FILE" /tmp/dns-route-refresh.$$
   if [ "${LOCK_HELD:-0}" = "1" ]; then
@@ -128,6 +133,25 @@ warm_fqdn_groups() {
   fi
 }
 
+restart_dns_intercept() {
+  if ! run_ndmc "no dns-proxy intercept enable"; then
+    fail "Не удалось отключить dns-proxy intercept" "$CMD_OUTPUT"
+  fi
+  sleep 2
+  if ! run_ndmc "dns-proxy intercept enable"; then
+    fail "Не удалось включить dns-proxy intercept" "$CMD_OUTPUT"
+  fi
+}
+
+save_running_config() {
+  if ! ndmc -c 'system configuration save' >/tmp/dns-route-refresh-save.$$ 2>&1; then
+    details=$(cat /tmp/dns-route-refresh-save.$$ 2>/dev/null)
+    rm -f /tmp/dns-route-refresh-save.$$
+    fail "Не удалось сохранить running-config Keenetic" "$details"
+  fi
+  rm -f /tmp/dns-route-refresh-save.$$
+}
+
 echo "Content-Type: application/json"
 echo "Cache-Control: no-store"
 echo ""
@@ -151,6 +175,15 @@ WARM_GROUPS_FILE="/opt/tmp/dns-route-refresh-warm-groups-$$.txt"
 mkdir -p "$PROFILE_DIR" "$BACKUP_DIR" /opt/tmp
 LOCK_HELD=0
 acquire_lock
+REFRESH_MODE=$(query_value mode)
+
+case "$REFRESH_MODE" in
+  ""|full|intercept-only)
+    ;;
+  *)
+    fail "Неизвестный режим DNS reset" "$REFRESH_MODE"
+    ;;
+esac
 
 if ! ndmc -c 'show running-config' > "$RUNCFG_FILE" 2>/tmp/dns-route-refresh-show.$$; then
   details=$(cat /tmp/dns-route-refresh-show.$$ 2>/dev/null)
@@ -162,6 +195,26 @@ rm -f /tmp/dns-route-refresh-show.$$
 STAMP=$(date +%Y%m%d-%H%M%S)
 BACKUP_PATH="$BACKUP_DIR/ndmc-running-config-$STAMP-before-dns-route-refresh.txt"
 cp "$RUNCFG_FILE" "$BACKUP_PATH" || fail "Не удалось сохранить backup running-config" "$BACKUP_PATH"
+
+if [ "$REFRESH_MODE" = "intercept-only" ]; then
+  restart_dns_intercept
+  save_running_config
+
+  printf '{'
+  printf '"ok":true,'
+  printf '"message":"DNS-маршруты уже применены; dns-proxy intercept перезапущен.",'
+  printf '"appliedCount":0,'
+  printf '"backupPath":"%s",' "$(json_escape "$BACKUP_PATH")"
+  printf '"source":"saved-routes",'
+  printf '"strategy":"intercept-only",'
+  printf '"fqdnWarmCount":0,'
+  printf '"fqdnWarmDelaySec":0,'
+  printf '"verifiedCount":0'
+  printf '}'
+
+  cleanup
+  exit 0
+fi
 
 route_lines_from_config "$RUNCFG_FILE" > "$ROUTES_FILE"
 
@@ -206,20 +259,8 @@ if ! cmp -s "$EXPECTED_FILE" "$VERIFY_FILE.routes"; then
   fail "Итоговые DNS-маршруты не совпали с сохранённым состоянием" "$(cat "$VERIFY_FILE.routes" 2>/dev/null)"
 fi
 
-if ! run_ndmc "no dns-proxy intercept enable"; then
-  fail "Не удалось отключить dns-proxy intercept" "$CMD_OUTPUT"
-fi
-sleep 2
-if ! run_ndmc "dns-proxy intercept enable"; then
-  fail "Не удалось включить dns-proxy intercept" "$CMD_OUTPUT"
-fi
-
-if ! ndmc -c 'system configuration save' >/tmp/dns-route-refresh-save.$$ 2>&1; then
-  details=$(cat /tmp/dns-route-refresh-save.$$ 2>/dev/null)
-  rm -f /tmp/dns-route-refresh-save.$$
-  fail "Не удалось сохранить running-config Keenetic" "$details"
-fi
-rm -f /tmp/dns-route-refresh-save.$$
+restart_dns_intercept
+save_running_config
 
 printf '{'
 printf '"ok":true,'

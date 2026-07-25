@@ -15,6 +15,27 @@ SERVICE="/opt/etc/init.d/S24xray"
 mkdir -p /opt/tmp "$BACKUP_DIR"
 cat > "$TMP"
 
+prepare_xray_service() {
+  if [ ! -f "$SERVICE" ]; then
+    printf '{"ok":false,"error":"Сервис Xray не найден","details":"%s"}' "$(json_escape "$SERVICE")"
+    return 1
+  fi
+
+  # The UI deliberately removes the executable bit while Xray is disabled so
+  # Entware does not start it on boot. Restore it when an active Xray config is
+  # being saved and the service must be started again.
+  if [ ! -x "$SERVICE" ]; then
+    chmod 755 "$SERVICE" >/dev/null 2>&1 || true
+  fi
+
+  if [ ! -x "$SERVICE" ]; then
+    printf '{"ok":false,"error":"Не удалось включить сервис Xray","details":"Нет права на запуск %s"}' "$(json_escape "$SERVICE")"
+    return 1
+  fi
+
+  return 0
+}
+
 xray_running() {
   pidof xray >/dev/null 2>&1
 }
@@ -41,6 +62,11 @@ VALIDATE_CODE=$?
 if [ "$VALIDATE_CODE" -ne 0 ]; then
   rm -f "$TMP"
   printf '{"ok":false,"error":"Проверка конфига не прошла","details":"%s"}' "$(json_escape "$VALIDATE_OUTPUT")"
+  exit 0
+fi
+
+if ! prepare_xray_service; then
+  rm -f "$TMP"
   exit 0
 fi
 
