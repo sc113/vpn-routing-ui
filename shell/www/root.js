@@ -410,11 +410,12 @@
 
     if (checkUiUpdateBtn) {
       checkUiUpdateBtn.disabled = busy || state.uiUpdateLoading;
+      checkUiUpdateBtn.textContent = state.uiUpdateLoading ? "Проверяем..." : "Проверить версию";
     }
     if (updateUiBtn) {
       updateUiBtn.disabled = busy || state.uiUpdateLoading || !updateAvailable;
       if (!busy) {
-        updateUiBtn.textContent = updateAvailable ? "Обновить UI" : "UI актуален";
+        updateUiBtn.textContent = updateAvailable ? "Обновить UI" : update ? "UI актуален" : "Сначала проверить";
       }
     }
   }
@@ -1158,7 +1159,6 @@
       } else {
         clearBanner();
       }
-      void loadUiUpdateAvailability({ quiet: true });
 
     } catch (error) {
       state.systemHealthLoading = false;

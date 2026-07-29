@@ -88,7 +88,7 @@
     }
 
     if (!state.health) {
-      body.innerHTML = row("🩺", "Health", "нет данных", "Нажми refresh, чтобы считать состояние.");
+      body.innerHTML = row("🩺", "Статус", "по кнопке", "Нажми ♻️, чтобы считать CPU, load и RAM.");
       return;
     }
 
@@ -156,7 +156,7 @@
     }
     const state = { loading: false, error: "", health: null };
     widget.querySelector("[data-health-refresh]").addEventListener("click", () => load(widget, state));
-    load(widget, state);
+    render(widget, state);
   }
 
   if (document.readyState === "loading") {
