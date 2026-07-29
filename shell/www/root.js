@@ -1,4 +1,5 @@
 (function () {
+  const READ_TIMEOUT_MS = 15000;
   const banner = document.getElementById("banner");
   const quickGrid = document.getElementById("quickGrid");
   const statusRows = document.getElementById("statusRows");
@@ -25,6 +26,7 @@
     uiUpdateLoading: false,
     uiUpdateError: "",
     actionBusy: null,
+    reloadLoading: false,
   };
 
   function showBanner(kind, text) {
@@ -41,6 +43,18 @@
     }
     banner.className = "banner";
     banner.textContent = "";
+  }
+
+  function setRefreshButtonLoading(button, loading) {
+    if (!button) return;
+    const text = button.querySelector("[data-refresh-text]");
+    button.classList.toggle("is-loading", Boolean(loading));
+    button.setAttribute("aria-busy", loading ? "true" : "false");
+    if (text) {
+      text.textContent = loading
+        ? button.getAttribute("data-loading-label") || "Обновляем..."
+        : button.getAttribute("data-idle-label") || "Обновить";
+    }
   }
 
   function boolPill(ok, yesText, noText) {
@@ -329,7 +343,8 @@
 
   function setControlsDisabled(disabled) {
     if (reloadBtn) {
-      reloadBtn.disabled = disabled;
+      reloadBtn.disabled = disabled || state.reloadLoading;
+      setRefreshButtonLoading(reloadBtn, state.reloadLoading);
     }
     if (checkUpdatesBtn) {
       checkUpdatesBtn.disabled = disabled || state.packageUpdatesLoading;
@@ -477,13 +492,31 @@
   }
 
   function fetchJson(url, options) {
-    return fetch(url, options).then(async (response) => {
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.ok === false) {
-        throw new Error(data.error || data.message || "HTTP " + response.status);
-      }
-      return data;
-    });
+    const requestOptions = Object.assign({}, options || {});
+    const timeoutMs = Math.max(0, Number(requestOptions.timeoutMs) || 0);
+    delete requestOptions.timeoutMs;
+    const controller = timeoutMs ? new AbortController() : null;
+    const timeoutId = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : 0;
+    if (controller) {
+      requestOptions.signal = controller.signal;
+    }
+    return fetch(url, requestOptions)
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.ok === false) {
+          throw new Error(data.error || data.message || "HTTP " + response.status);
+        }
+        return data;
+      })
+      .catch((error) => {
+        if (error && error.name === "AbortError") {
+          throw new Error("Роутер не ответил за 15 секунд. Повтори попытку.");
+        }
+        throw error;
+      })
+      .finally(() => {
+        if (timeoutId) window.clearTimeout(timeoutId);
+      });
   }
 
   function loadRuntimeStatus() {
@@ -1140,8 +1173,8 @@
       state.systemHealthLoading = false;
       state.systemHealthError = "";
       const [statusResult, profilesResult] = await Promise.allSettled([
-        fetchJson("/cgi-bin/status.cgi", { cache: "no-store" }),
-        fetchJson("/cgi-bin/xray-profiles.cgi", { cache: "no-store" }),
+        fetchJson("/cgi-bin/status.cgi", { cache: "no-store", timeoutMs: READ_TIMEOUT_MS }),
+        fetchJson("/cgi-bin/xray-profiles.cgi", { cache: "no-store", timeoutMs: READ_TIMEOUT_MS }),
       ]);
 
       if (statusResult.status !== "fulfilled") {
@@ -1211,8 +1244,17 @@
   });
 
   if (reloadBtn) {
-    reloadBtn.addEventListener("click", function () {
-      init("Состояние роутера перечитано.");
+    reloadBtn.addEventListener("click", async function () {
+      if (state.reloadLoading) return;
+      state.reloadLoading = true;
+      setControlsDisabled(false);
+      showBanner("warn", "Обновляем данные обзора...");
+      try {
+        await init("Данные обзора обновлены.");
+      } finally {
+        state.reloadLoading = false;
+        setControlsDisabled(false);
+      }
     });
   }
 

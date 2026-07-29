@@ -54,7 +54,10 @@
           </p>
         </div>
         <div class="toolbar-right">
-          <button id="reloadBtn" class="refresh-button" type="button" aria-label="Перечитать состояние" title="Перечитать состояние">♻️</button>
+          <button id="reloadBtn" class="refresh-button refresh-button-labeled" type="button" aria-label="Обновить данные обзора" title="Обновить данные обзора" aria-busy="false" data-idle-label="Обновить данные" data-loading-label="Обновляем...">
+            <span class="refresh-button-icon" aria-hidden="true">↻</span>
+            <span data-refresh-text>Обновить данные</span>
+          </button>
         </div>
       </div>
       <div id="quickGrid" class="grid two quick-grid"></div>

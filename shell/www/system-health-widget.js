@@ -1,5 +1,6 @@
 (function () {
   const API_URL = "/cgi-bin/router-system-health.cgi";
+  const REQUEST_TIMEOUT_MS = 15000;
 
   function escapeHtml(value) {
     return String(value == null ? "" : value)
@@ -68,27 +69,62 @@
     `;
   }
 
+  function statePanel(title, hint, kind) {
+    const kindClass = kind ? " " + kind : "";
+    return `
+      <div class="system-health-widget-state${kindClass}">
+        <strong>${escapeHtml(title)}</strong>
+        <span>${escapeHtml(hint)}</span>
+      </div>
+    `;
+  }
+
+  function sampledAtLabel(value) {
+    const date = new Date(String(value || ""));
+    if (!Number.isFinite(date.getTime())) {
+      return "Данные обновлены только что";
+    }
+    return "Данные обновлены в " + date.toLocaleTimeString("ru-RU");
+  }
+
   function render(widget, state) {
     const button = widget.querySelector("[data-health-refresh]");
+    const buttonText = widget.querySelector("[data-health-refresh-text]");
     const body = widget.querySelector("[data-health-body]");
     if (!body || !button) return;
 
     button.disabled = Boolean(state.loading);
     button.classList.toggle("is-loading", Boolean(state.loading));
+    button.setAttribute("aria-busy", state.loading ? "true" : "false");
     button.title = state.loading ? "Считываем здоровье роутера" : "Обновить здоровье роутера";
+    if (buttonText) {
+      buttonText.textContent = state.loading
+        ? "Проверяем..."
+        : state.error
+          ? "Повторить"
+          : state.health
+            ? "Обновить"
+            : "Проверить";
+    }
 
-    if (state.loading && !state.health) {
-      body.innerHTML = row("⏳", "Статус", "читаем", "Считываем CPU, load, RAM и процессы.");
+    if (state.loading) {
+      body.innerHTML = statePanel(
+        "Считываем нагрузку роутера...",
+        "Обычно это занимает несколько секунд."
+      );
       return;
     }
 
-    if (state.error && !state.health) {
-      body.innerHTML = row("⚠️", "Health", "ошибка", state.error);
+    if (state.error) {
+      body.innerHTML = statePanel("Не удалось получить данные", state.error, "is-error");
       return;
     }
 
     if (!state.health) {
-      body.innerHTML = row("🩺", "Статус", "по кнопке", "Нажми ♻️, чтобы считать CPU, load и RAM.");
+      body.innerHTML = statePanel(
+        "Нагрузка ещё не проверена",
+        "Проверка запускается только по кнопке."
+      );
       return;
     }
 
@@ -103,23 +139,34 @@
         row("🚇", "VPN", formatPercent(health.vpnCpu, 1), "Суммарный CPU xray и sing-box.", loadLevel(health.vpnCpu)) +
         row("🔀", "ProxyN", formatPercent(health.proxyCpu, 1), "CPU процессов ProxyN.", loadLevel(health.proxyCpu));
     }
+    html += `<div class="system-health-widget-updated">${escapeHtml(sampledAtLabel(health.sampledAt))}</div>`;
     body.innerHTML = html;
   }
 
   async function load(widget, state) {
+    if (state.loading) return;
     state.loading = true;
     state.error = "";
     render(widget, state);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const response = await fetch(API_URL, { cache: "no-store" });
+      const response = await fetch(API_URL, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data.ok === false) {
         throw new Error(data.error || data.message || "HTTP " + response.status);
       }
       state.health = normalize(data);
     } catch (error) {
-      state.error = error.message || String(error);
+      state.error =
+        error && error.name === "AbortError"
+          ? "Роутер не ответил за 15 секунд. Повтори попытку."
+          : error.message || String(error);
     } finally {
+      window.clearTimeout(timeoutId);
       state.loading = false;
       render(widget, state);
     }
@@ -137,7 +184,10 @@
           <span aria-hidden="true">🩺</span>
           <span>Роутер</span>
         </div>
-        <button class="refresh-button system-health-widget-refresh" type="button" data-health-refresh aria-label="Обновить здоровье роутера" title="Обновить здоровье роутера">♻️</button>
+        <button class="refresh-button refresh-button-labeled system-health-widget-refresh" type="button" data-health-refresh aria-label="Проверить здоровье роутера" title="Проверить здоровье роутера" aria-busy="false">
+          <span class="refresh-button-icon" aria-hidden="true">↻</span>
+          <span data-health-refresh-text>Проверить</span>
+        </button>
       </div>
       <div class="system-health-widget-grid" data-health-body></div>
     `;

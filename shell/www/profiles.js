@@ -6,6 +6,7 @@ const DIRECT_DNS_ROUTE_TARGET = "ISP";
 const DIRECT_DNS_SELECT_VALUE = "__direct__";
 const AUTO_STORM_LOOPBACK_THRESHOLD = 200;
 const DNS_ROUTE_LOCKS_STORAGE_KEY = "vpn-routing-ui:dns-route-locks:v1";
+const READ_TIMEOUT_MS = 15000;
 
 const SYSTEM_OUTBOUND_TAGS = new Set(["direct", "blocked"]);
 const SYSTEM_OUTBOUND_PROTOCOLS = new Set(["freedom", "blackhole"]);
@@ -62,6 +63,7 @@ const state = {
   clientHosts: [],
   clientPolicies: [],
   clientAssignments: [],
+  pageReloadLoading: false,
   layoutReady: false,
   modalMode: null,
   modalProfileId: null,
@@ -70,6 +72,20 @@ const state = {
 
 function $(id) {
   return document.getElementById(id);
+}
+
+function setRefreshButtonLoading(button, loading) {
+  if (!button) {
+    return;
+  }
+  const text = button.querySelector("[data-refresh-text]");
+  button.classList.toggle("is-loading", Boolean(loading));
+  button.setAttribute("aria-busy", loading ? "true" : "false");
+  if (text) {
+    text.textContent = loading
+      ? button.getAttribute("data-loading-label") || "Обновляем..."
+      : button.getAttribute("data-idle-label") || "Обновить";
+  }
 }
 
 function clone(value) {
@@ -487,7 +503,8 @@ function updateBusyControls() {
   const hasBulkDnsRoutes = bulkDnsRuleIds.length > 0;
 
   if ($("reloadBtn")) {
-    $("reloadBtn").disabled = busy;
+    $("reloadBtn").disabled = busy || state.pageReloadLoading;
+    setRefreshButtonLoading($("reloadBtn"), state.pageReloadLoading);
   }
   if ($("pingAllBtn")) {
     $("pingAllBtn").disabled = busy || state.pingAllInFlight;
@@ -546,7 +563,18 @@ function updateBusyControls() {
   }
   if ($("dnsRoutesReloadBtn")) {
     $("dnsRoutesReloadBtn").disabled = busy || state.dnsRoutesLoading;
-    $("dnsRoutesReloadBtn").classList.toggle("is-loading", Boolean(state.dnsRoutesLoading));
+    setRefreshButtonLoading($("dnsRoutesReloadBtn"), state.dnsRoutesLoading);
+  }
+  const runtimeRefreshBtn = document.querySelector('[data-router-action="status-refresh"]');
+  if (runtimeRefreshBtn) {
+    const loading = state.systemHealthLoading || state.routerRuntimeLoading;
+    runtimeRefreshBtn.disabled = busy || loading;
+    setRefreshButtonLoading(runtimeRefreshBtn, loading);
+  }
+  const clientsRefreshBtn = document.querySelector('[data-router-action="clients-refresh"]');
+  if (clientsRefreshBtn) {
+    clientsRefreshBtn.disabled = busy || state.clientPoliciesLoading;
+    setRefreshButtonLoading(clientsRefreshBtn, state.clientPoliciesLoading);
   }
   if ($("modalSaveBtn")) {
     $("modalSaveBtn").disabled = busy;
@@ -1412,50 +1440,68 @@ function delayClass(ms) {
 }
 
 function fetchJson(url, options) {
-  return fetch(url, options).then(async (response) => {
-    const data = await response.json().catch(() => ({}));
-    const errorMessage = data && (data.error || data.message);
-    const errorDetails = data && data.details ? String(data.details) : "";
-    const fullError =
-      errorMessage && errorDetails && !String(errorMessage).includes(errorDetails)
-        ? errorMessage + ": " + errorDetails
-        : errorMessage;
-    if (!response.ok) {
-      throw new Error(fullError || "HTTP " + response.status);
-    }
-    if (data && data.ok === false) {
-      throw new Error(fullError || "Операция на роутере не выполнена.");
-    }
-    return data;
-  });
+  const requestOptions = Object.assign({}, options || {});
+  const timeoutMs = Math.max(0, Number(requestOptions.timeoutMs) || 0);
+  delete requestOptions.timeoutMs;
+  const controller = timeoutMs ? new AbortController() : null;
+  const timeoutId = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : 0;
+  if (controller) {
+    requestOptions.signal = controller.signal;
+  }
+  return fetch(url, requestOptions)
+    .then(async (response) => {
+      const data = await response.json().catch(() => ({}));
+      const errorMessage = data && (data.error || data.message);
+      const errorDetails = data && data.details ? String(data.details) : "";
+      const fullError =
+        errorMessage && errorDetails && !String(errorMessage).includes(errorDetails)
+          ? errorMessage + ": " + errorDetails
+          : errorMessage;
+      if (!response.ok) {
+        throw new Error(fullError || "HTTP " + response.status);
+      }
+      if (data && data.ok === false) {
+        throw new Error(fullError || "Операция на роутере не выполнена.");
+      }
+      return data;
+    })
+    .catch((error) => {
+      if (error && error.name === "AbortError") {
+        throw new Error("Роутер не ответил за 15 секунд. Повтори попытку.");
+      }
+      throw error;
+    })
+    .finally(() => {
+      if (timeoutId) window.clearTimeout(timeoutId);
+    });
 }
 
 function loadStatus() {
-  return fetchJson("/cgi-bin/status.cgi", { cache: "no-store" });
+  return fetchJson("/cgi-bin/status.cgi", { cache: "no-store", timeoutMs: READ_TIMEOUT_MS });
 }
 
 function loadProfilesDoc() {
-  return fetchJson("/cgi-bin/xray-profiles.cgi", { cache: "no-store" });
+  return fetchJson("/cgi-bin/xray-profiles.cgi", { cache: "no-store", timeoutMs: READ_TIMEOUT_MS });
 }
 
 function loadLiveConfig() {
-  return fetchJson("/cgi-bin/xray-config.cgi", { cache: "no-store" });
+  return fetchJson("/cgi-bin/xray-config.cgi", { cache: "no-store", timeoutMs: READ_TIMEOUT_MS });
 }
 
 function loadDnsRoutes() {
-  return fetchJson("/cgi-bin/router-dns-routes.cgi", { cache: "no-store" });
+  return fetchJson("/cgi-bin/router-dns-routes.cgi", { cache: "no-store", timeoutMs: READ_TIMEOUT_MS });
 }
 
 function loadClientPolicies() {
-  return fetchJson("/cgi-bin/router-client-policies.cgi", { cache: "no-store" });
+  return fetchJson("/cgi-bin/router-client-policies.cgi", { cache: "no-store", timeoutMs: READ_TIMEOUT_MS });
 }
 
 function loadRouterRuntime() {
-  return fetchJson("/cgi-bin/router-runtime-status.cgi", { cache: "no-store" });
+  return fetchJson("/cgi-bin/router-runtime-status.cgi", { cache: "no-store", timeoutMs: READ_TIMEOUT_MS });
 }
 
 function loadSystemHealth() {
-  return fetchJson("/cgi-bin/router-system-health.cgi", { cache: "no-store" });
+  return fetchJson("/cgi-bin/router-system-health.cgi", { cache: "no-store", timeoutMs: READ_TIMEOUT_MS });
 }
 
 function normalizeClientHosts(payload) {
@@ -3582,7 +3628,7 @@ function renderProxyRuntimeTable() {
     if (!state.statusSnapshotLoaded && !state.routerRuntimeLoading && !state.systemHealthLoading) {
       note.className = "runtime-health-note";
       note.textContent =
-        "Живой статус ProxyN не считывается автоматически. Нажми ♻️, когда нужен снимок.";
+        "Живой статус ProxyN не считывается автоматически. Нажми «Проверить», когда нужен снимок.";
       note.hidden = false;
     } else if (systemBusy) {
       note.className = "runtime-health-note is-bad";
@@ -3772,7 +3818,7 @@ function renderClientPolicies() {
     if (note) {
       note.className = "runtime-health-note";
       note.textContent =
-        "Список клиентов не считывается автоматически. Нажми ♻️, когда нужен снимок.";
+        "Список клиентов не считывается автоматически. Нажми «Загрузить», когда нужен снимок.";
       note.hidden = false;
     }
     body.innerHTML = `
@@ -5523,7 +5569,19 @@ function saveEverything() {
 
 function wireEvents() {
   $("reloadBtn").addEventListener("click", function () {
-    init("Список профилей и живой конфиг перечитаны с роутера.").catch((error) => showBanner("error", error.message));
+    if (state.pageReloadLoading) {
+      return;
+    }
+    state.pageReloadLoading = true;
+    updateBusyControls();
+    const request = init("Список профилей и конфигурация перечитаны с роутера.");
+    showBanner("warn", "Перечитываем профили и конфигурацию...");
+    request
+      .catch((error) => showBanner("error", error.message))
+      .finally(() => {
+        state.pageReloadLoading = false;
+        updateBusyControls();
+      });
   });
 
   if ($("saveAllBtn")) {

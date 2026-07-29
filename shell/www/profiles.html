@@ -89,7 +89,10 @@
           </p>
         </div>
         <div class="toolbar-right">
-          <button id="reloadBtn" class="refresh-button" type="button" aria-label="Перечитать данные роутера" title="Перечитать данные роутера">♻️</button>
+          <button id="reloadBtn" class="refresh-button refresh-button-labeled" type="button" aria-label="Перечитать данные роутера" title="Перечитать данные роутера" aria-busy="false" data-idle-label="Перечитать" data-loading-label="Читаем...">
+            <span class="refresh-button-icon" aria-hidden="true">↻</span>
+            <span data-refresh-text>Перечитать</span>
+          </button>
         </div>
       </div>
       <div id="summaryGrid" class="engine-rows"></div>
@@ -163,11 +166,17 @@
           <button
             id="dnsRoutesReloadBtn"
             type="button"
-            class="refresh-button"
+            class="refresh-button refresh-button-labeled"
             data-router-action="dns-routes-reload"
             aria-label="Перечитать DNS-маршруты"
             title="Перечитать DNS-маршруты"
-          >♻️</button>
+            aria-busy="false"
+            data-idle-label="Перечитать"
+            data-loading-label="Читаем..."
+          >
+            <span class="refresh-button-icon" aria-hidden="true">↻</span>
+            <span data-refresh-text>Перечитать</span>
+          </button>
         </div>
       </div>
 
@@ -217,7 +226,10 @@
         </div>
         <div class="toolbar-right">
           <button type="button" class="secondary" data-router-action="proxy-names-sync" title="Обновить description у ProxyN по названиям профилей из UI">Имена ProxyN</button>
-          <button type="button" class="refresh-button" data-router-action="status-refresh" aria-label="Перечитать runtime" title="Перечитать runtime">♻️</button>
+          <button type="button" class="refresh-button refresh-button-labeled" data-router-action="status-refresh" aria-label="Проверить runtime" title="Проверить runtime" aria-busy="false" data-idle-label="Проверить" data-loading-label="Проверяем...">
+            <span class="refresh-button-icon" aria-hidden="true">↻</span>
+            <span data-refresh-text>Проверить</span>
+          </button>
         </div>
       </div>
 
@@ -251,7 +263,10 @@
           </p>
         </div>
         <div class="toolbar-right">
-          <button type="button" class="refresh-button" data-router-action="clients-refresh" aria-label="Загрузить клиентов" title="Загрузить клиентов">♻️</button>
+          <button type="button" class="refresh-button refresh-button-labeled" data-router-action="clients-refresh" aria-label="Загрузить клиентов" title="Загрузить клиентов" aria-busy="false" data-idle-label="Загрузить" data-loading-label="Загружаем...">
+            <span class="refresh-button-icon" aria-hidden="true">↻</span>
+            <span data-refresh-text>Загрузить</span>
+          </button>
         </div>
       </div>
 

@@ -1028,6 +1028,7 @@ button.refresh-button,
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   width: 44px;
   min-width: 44px;
   height: 42px;
@@ -1044,7 +1045,29 @@ button.refresh-button:hover,
 }
 
 button.refresh-button.is-loading {
-  animation: pulseStatus 1.2s ease-in-out infinite;
+  background: #1aa974;
+  box-shadow: 0 0 0 3px rgba(26, 169, 116, 0.16);
+}
+
+button.refresh-button.refresh-button-labeled,
+.button-like.refresh-button.refresh-button-labeled {
+  width: auto;
+  min-width: 116px;
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.refresh-button-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 19px;
+  line-height: 1;
+}
+
+button.refresh-button.is-loading .refresh-button-icon {
+  animation: refreshSpin 0.8s linear infinite;
 }
 
 .visually-hidden {
@@ -2507,17 +2530,56 @@ textarea {
 }
 
 .system-health-widget-refresh {
-  width: 34px;
-  min-width: 34px;
-  height: 32px;
+  width: auto;
+  min-width: 116px;
+  height: 38px;
+  padding-inline: 13px;
   border-radius: 10px;
-  font-size: 17px;
+  font-size: 13px;
 }
 
 .system-health-widget-grid {
   display: grid;
   gap: 8px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.system-health-widget-state {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(16, 21, 29, 0.6);
+}
+
+.system-health-widget-state strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.system-health-widget-state span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.system-health-widget-state.is-error {
+  border-color: rgba(248, 113, 113, 0.42);
+  background: rgba(127, 29, 29, 0.24);
+}
+
+.system-health-widget-state.is-error strong {
+  color: #fca5a5;
+}
+
+.system-health-widget-updated {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
 }
 
 .system-health-widget-row {
@@ -2614,6 +2676,12 @@ textarea {
   100% {
     transform: scale(1);
     opacity: 0.94;
+  }
+}
+
+@keyframes refreshSpin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
