@@ -2582,6 +2582,81 @@ textarea {
   text-align: right;
 }
 
+.manual-load-panel {
+  position: relative;
+  overflow: hidden;
+}
+
+.manual-load-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 220px;
+  padding: 22px;
+  border-radius: inherit;
+  background: rgba(8, 12, 19, 0.78);
+  backdrop-filter: blur(3px);
+}
+
+.manual-load-overlay[hidden] {
+  display: none;
+}
+
+.manual-load-card {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  width: min(390px, 100%);
+  padding: 20px;
+  border: 1px solid rgba(126, 148, 178, 0.38);
+  border-radius: 16px;
+  background: rgba(20, 28, 40, 0.98);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.34);
+  text-align: center;
+}
+
+.manual-load-badge {
+  padding: 4px 9px;
+  border: 1px solid rgba(45, 212, 191, 0.28);
+  border-radius: 999px;
+  background: rgba(13, 148, 136, 0.12);
+  color: #99f6e4;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.manual-load-card strong {
+  margin-top: 2px;
+  color: var(--text);
+  font-size: 17px;
+}
+
+.manual-load-card p {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.manual-load-card .refresh-button {
+  min-width: 150px;
+}
+
+.manual-load-overlay.is-error .manual-load-card {
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+.manual-load-overlay.is-error .manual-load-badge {
+  border-color: rgba(248, 113, 113, 0.32);
+  background: rgba(127, 29, 29, 0.2);
+  color: #fca5a5;
+}
+
 .system-health-widget-row {
   display: flex;
   align-items: center;

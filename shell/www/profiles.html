@@ -215,7 +215,7 @@
       </div>
     </section>
 
-    <section id="proxyRuntimePanel" class="panel">
+    <section id="proxyRuntimePanel" class="panel manual-load-panel">
       <div class="toolbar">
         <div>
           <h2>ProxyN и runtime</h2>
@@ -252,9 +252,20 @@
           <tbody id="proxyRuntimeTableBody"></tbody>
         </table>
       </div>
+      <div id="proxyRuntimeManualOverlay" class="manual-load-overlay">
+        <div class="manual-load-card">
+          <span class="manual-load-badge" data-manual-load-badge>Только вручную</span>
+          <strong data-manual-load-title>Живые данные не загружены</strong>
+          <p data-manual-load-hint>Этот блок не обращается к роутеру при открытии страницы.</p>
+          <button type="button" class="refresh-button refresh-button-labeled" data-router-action="status-refresh" aria-label="Обновить живые данные ProxyN" aria-busy="false" data-idle-label="Обновить" data-loading-label="Загружаем...">
+            <span class="refresh-button-icon" aria-hidden="true">↻</span>
+            <span data-refresh-text>Обновить</span>
+          </button>
+        </div>
+      </div>
     </section>
 
-    <section id="clientPoliciesPanel" class="panel">
+    <section id="clientPoliciesPanel" class="panel manual-load-panel">
       <div class="toolbar">
         <div>
           <h2>Полный маршрут устройств</h2>
@@ -286,6 +297,17 @@
           </thead>
           <tbody id="clientPoliciesTableBody"></tbody>
         </table>
+      </div>
+      <div id="clientPoliciesManualOverlay" class="manual-load-overlay">
+        <div class="manual-load-card">
+          <span class="manual-load-badge" data-manual-load-badge>Только вручную</span>
+          <strong data-manual-load-title>Устройства не загружены</strong>
+          <p data-manual-load-hint>Этот блок не обращается к роутеру при открытии страницы.</p>
+          <button type="button" class="refresh-button refresh-button-labeled" data-router-action="clients-refresh" aria-label="Обновить список устройств" aria-busy="false" data-idle-label="Обновить" data-loading-label="Загружаем...">
+            <span class="refresh-button-icon" aria-hidden="true">↻</span>
+            <span data-refresh-text>Обновить</span>
+          </button>
+        </div>
       </div>
     </section>
 

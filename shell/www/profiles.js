@@ -88,6 +88,45 @@ function setRefreshButtonLoading(button, loading) {
   }
 }
 
+function renderManualLoadOverlay(config) {
+  const overlay = $(config.id);
+  if (!overlay) {
+    return;
+  }
+  const loading = Boolean(config.loading);
+  const error = String(config.error || "").trim();
+  const loaded = Boolean(config.loaded);
+  overlay.hidden = loaded && !loading && !error;
+  overlay.classList.toggle("is-error", Boolean(error));
+
+  const badge = overlay.querySelector("[data-manual-load-badge]");
+  const title = overlay.querySelector("[data-manual-load-title]");
+  const hint = overlay.querySelector("[data-manual-load-hint]");
+  const button = overlay.querySelector("button");
+  if (badge) {
+    badge.textContent = error ? "Нужен повтор" : loading ? "Загружаем" : "Только вручную";
+  }
+  if (title) {
+    title.textContent = error
+      ? "Не удалось загрузить данные"
+      : loading
+        ? config.loadingTitle
+        : config.emptyTitle;
+  }
+  if (hint) {
+    hint.textContent = error
+      ? error
+      : loading
+        ? "Обычно это занимает несколько секунд."
+        : "Этот блок не обращается к роутеру при открытии страницы.";
+  }
+  if (button) {
+    button.setAttribute("data-idle-label", error ? "Повторить" : "Обновить");
+    button.disabled = loading;
+    setRefreshButtonLoading(button, loading);
+  }
+}
+
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
@@ -565,17 +604,16 @@ function updateBusyControls() {
     $("dnsRoutesReloadBtn").disabled = busy || state.dnsRoutesLoading;
     setRefreshButtonLoading($("dnsRoutesReloadBtn"), state.dnsRoutesLoading);
   }
-  const runtimeRefreshBtn = document.querySelector('[data-router-action="status-refresh"]');
-  if (runtimeRefreshBtn) {
-    const loading = state.systemHealthLoading || state.routerRuntimeLoading;
+  const runtimeLoading = state.systemHealthLoading || state.routerRuntimeLoading;
+  document.querySelectorAll('[data-router-action="status-refresh"]').forEach((runtimeRefreshBtn) => {
+    const loading = runtimeLoading;
     runtimeRefreshBtn.disabled = busy || loading;
     setRefreshButtonLoading(runtimeRefreshBtn, loading);
-  }
-  const clientsRefreshBtn = document.querySelector('[data-router-action="clients-refresh"]');
-  if (clientsRefreshBtn) {
+  });
+  document.querySelectorAll('[data-router-action="clients-refresh"]').forEach((clientsRefreshBtn) => {
     clientsRefreshBtn.disabled = busy || state.clientPoliciesLoading;
     setRefreshButtonLoading(clientsRefreshBtn, state.clientPoliciesLoading);
-  }
+  });
   if ($("modalSaveBtn")) {
     $("modalSaveBtn").disabled = busy;
     $("modalSaveBtn").textContent = busy ? "Сохраняем..." : "Сохранить изменения";
@@ -3607,6 +3645,14 @@ function renderDnsRoutesTable() {
 function renderProxyRuntimeTable() {
   const body = $("proxyRuntimeTableBody");
   const note = $("proxyRuntimeNotice");
+  renderManualLoadOverlay({
+    id: "proxyRuntimeManualOverlay",
+    loaded: state.statusSnapshotLoaded,
+    loading: state.systemHealthLoading || state.routerRuntimeLoading,
+    error: state.systemHealthError || state.routerRuntimeError,
+    emptyTitle: "Живые данные не загружены",
+    loadingTitle: "Обновляем ProxyN и runtime",
+  });
   if (!body) {
     return;
   }
@@ -3804,6 +3850,14 @@ function renderProxyRuntimeTable() {
 function renderClientPolicies() {
   const body = $("clientPoliciesTableBody");
   const note = $("clientPoliciesNotice");
+  renderManualLoadOverlay({
+    id: "clientPoliciesManualOverlay",
+    loaded: state.clientPoliciesLoaded,
+    loading: state.clientPoliciesLoading,
+    error: state.clientPoliciesError,
+    emptyTitle: "Устройства не загружены",
+    loadingTitle: "Обновляем список устройств",
+  });
   if (!body) {
     return;
   }
