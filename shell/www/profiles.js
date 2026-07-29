@@ -100,11 +100,15 @@ function renderManualLoadOverlay(config) {
   overlay.classList.toggle("is-error", Boolean(error));
 
   const badge = overlay.querySelector("[data-manual-load-badge]");
+  const section = overlay.querySelector("[data-manual-load-section] span:last-child");
   const title = overlay.querySelector("[data-manual-load-title]");
   const hint = overlay.querySelector("[data-manual-load-hint]");
   const button = overlay.querySelector("button");
   if (badge) {
-    badge.textContent = error ? "Нужен повтор" : loading ? "Загружаем" : "Только вручную";
+    badge.textContent = error ? "Нужно повторить" : loading ? "Загружаем" : "Обновление вручную";
+  }
+  if (section) {
+    section.textContent = config.sectionTitle;
   }
   if (title) {
     title.textContent = error
@@ -118,10 +122,10 @@ function renderManualLoadOverlay(config) {
       ? error
       : loading
         ? "Обычно это занимает несколько секунд."
-        : "Этот блок не обращается к роутеру при открытии страницы.";
+        : config.emptyHint;
   }
   if (button) {
-    button.setAttribute("data-idle-label", error ? "Повторить" : "Обновить");
+    button.setAttribute("data-idle-label", error ? "Повторить" : config.buttonLabel);
     button.disabled = loading;
     setRefreshButtonLoading(button, loading);
   }
@@ -3650,8 +3654,11 @@ function renderProxyRuntimeTable() {
     loaded: state.statusSnapshotLoaded,
     loading: state.systemHealthLoading || state.routerRuntimeLoading,
     error: state.systemHealthError || state.routerRuntimeError,
-    emptyTitle: "Живые данные не загружены",
-    loadingTitle: "Обновляем ProxyN и runtime",
+    sectionTitle: "ProxyN и runtime",
+    emptyTitle: "Данные ProxyN ещё не загружены",
+    emptyHint: "Здесь появятся состояние VPN-маршрутов, процессы и локальные SOCKS-сессии.",
+    loadingTitle: "Загружаем состояние ProxyN",
+    buttonLabel: "Проверить ProxyN",
   });
   if (!body) {
     return;
@@ -3855,8 +3862,11 @@ function renderClientPolicies() {
     loaded: state.clientPoliciesLoaded,
     loading: state.clientPoliciesLoading,
     error: state.clientPoliciesError,
-    emptyTitle: "Устройства не загружены",
+    sectionTitle: "Полный маршрут устройств",
+    emptyTitle: "Список устройств ещё не загружен",
+    emptyHint: "Здесь появятся устройства и выбранные для них полные VPN-маршруты.",
     loadingTitle: "Обновляем список устройств",
+    buttonLabel: "Загрузить устройства",
   });
   if (!body) {
     return;

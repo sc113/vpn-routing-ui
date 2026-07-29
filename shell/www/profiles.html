@@ -254,12 +254,16 @@
       </div>
       <div id="proxyRuntimeManualOverlay" class="manual-load-overlay">
         <div class="manual-load-card">
-          <span class="manual-load-badge" data-manual-load-badge>Только вручную</span>
-          <strong data-manual-load-title>Живые данные не загружены</strong>
-          <p data-manual-load-hint>Этот блок не обращается к роутеру при открытии страницы.</p>
-          <button type="button" class="refresh-button refresh-button-labeled" data-router-action="status-refresh" aria-label="Обновить живые данные ProxyN" aria-busy="false" data-idle-label="Обновить" data-loading-label="Загружаем...">
+          <div class="manual-load-section" data-manual-load-section>
+            <span aria-hidden="true">🔀</span>
+            <span>ProxyN и runtime</span>
+          </div>
+          <span class="manual-load-badge" data-manual-load-badge>Обновление вручную</span>
+          <strong data-manual-load-title>Данные ProxyN ещё не загружены</strong>
+          <p data-manual-load-hint>Здесь появятся состояние VPN-маршрутов, процессы и локальные SOCKS-сессии.</p>
+          <button type="button" class="refresh-button refresh-button-labeled" data-router-action="status-refresh" aria-label="Проверить ProxyN и runtime" aria-busy="false" data-idle-label="Проверить ProxyN" data-loading-label="Загружаем...">
             <span class="refresh-button-icon" aria-hidden="true">↻</span>
-            <span data-refresh-text>Обновить</span>
+            <span data-refresh-text>Проверить ProxyN</span>
           </button>
         </div>
       </div>
@@ -300,12 +304,16 @@
       </div>
       <div id="clientPoliciesManualOverlay" class="manual-load-overlay">
         <div class="manual-load-card">
-          <span class="manual-load-badge" data-manual-load-badge>Только вручную</span>
-          <strong data-manual-load-title>Устройства не загружены</strong>
-          <p data-manual-load-hint>Этот блок не обращается к роутеру при открытии страницы.</p>
-          <button type="button" class="refresh-button refresh-button-labeled" data-router-action="clients-refresh" aria-label="Обновить список устройств" aria-busy="false" data-idle-label="Обновить" data-loading-label="Загружаем...">
+          <div class="manual-load-section" data-manual-load-section>
+            <span aria-hidden="true">🖥️</span>
+            <span>Полный маршрут устройств</span>
+          </div>
+          <span class="manual-load-badge" data-manual-load-badge>Обновление вручную</span>
+          <strong data-manual-load-title>Список устройств ещё не загружен</strong>
+          <p data-manual-load-hint>Здесь появятся устройства и выбранные для них полные VPN-маршруты.</p>
+          <button type="button" class="refresh-button refresh-button-labeled" data-router-action="clients-refresh" aria-label="Загрузить устройства и полные маршруты" aria-busy="false" data-idle-label="Загрузить устройства" data-loading-label="Загружаем...">
             <span class="refresh-button-icon" aria-hidden="true">↻</span>
-            <span data-refresh-text>Обновить</span>
+            <span data-refresh-text>Загрузить устройства</span>
           </button>
         </div>
       </div>
