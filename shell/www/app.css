@@ -2656,6 +2656,22 @@ textarea {
   line-height: 1.45;
 }
 
+.manual-load-countdown {
+  min-width: 220px;
+  padding: 8px 12px;
+  border: 1px solid rgba(45, 212, 191, 0.25);
+  border-radius: 10px;
+  background: rgba(13, 148, 136, 0.1);
+  color: #b9fff5;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}
+
+.manual-load-countdown[hidden] {
+  display: none;
+}
+
 .manual-load-card .refresh-button {
   min-width: 150px;
 }

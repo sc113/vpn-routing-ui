@@ -144,7 +144,7 @@
       </div>
     </section>
 
-    <section class="panel" id="dns-routes">
+    <section class="panel manual-load-panel" id="dns-routes">
       <div class="toolbar">
         <div>
           <h2>DNS-маршруты</h2>
@@ -212,6 +212,22 @@
           </thead>
           <tbody id="dnsRoutesTableBody"></tbody>
         </table>
+      </div>
+      <div id="dnsRoutesLoadOverlay" class="manual-load-overlay">
+        <div class="manual-load-card">
+          <div class="manual-load-section">
+            <span aria-hidden="true">🧭</span>
+            <span>DNS-маршруты</span>
+          </div>
+          <span class="manual-load-badge" data-manual-load-badge>Автоматическая загрузка</span>
+          <strong data-manual-load-title>Готовим загрузку DNS-маршрутов</strong>
+          <p data-manual-load-hint>Сначала загружаются профили, затем UI читает списки domain-list с роутера.</p>
+          <div class="manual-load-countdown" data-dns-routes-countdown hidden>До таймаута осталось: 45 сек.</div>
+          <button type="button" class="refresh-button refresh-button-labeled" data-router-action="dns-routes-reload" aria-label="Повторить загрузку DNS-маршрутов" aria-busy="false" data-idle-label="Повторить загрузку" data-loading-label="Загружаем..." hidden>
+            <span class="refresh-button-icon" aria-hidden="true">↻</span>
+            <span data-refresh-text>Повторить загрузку</span>
+          </button>
+        </div>
       </div>
     </section>
 

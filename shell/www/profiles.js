@@ -7,6 +7,7 @@ const DIRECT_DNS_SELECT_VALUE = "__direct__";
 const AUTO_STORM_LOOPBACK_THRESHOLD = 200;
 const DNS_ROUTE_LOCKS_STORAGE_KEY = "vpn-routing-ui:dns-route-locks:v1";
 const READ_TIMEOUT_MS = 15000;
+const DNS_ROUTES_TIMEOUT_MS = 45000;
 
 const SYSTEM_OUTBOUND_TAGS = new Set(["direct", "blocked"]);
 const SYSTEM_OUTBOUND_PROTOCOLS = new Set(["freedom", "blackhole"]);
@@ -43,6 +44,8 @@ const state = {
   dnsRoutes: [],
   dnsRoutesLoading: false,
   dnsRoutesError: "",
+  dnsRoutesDeadlineAt: 0,
+  dnsRoutesCountdownTimer: 0,
   dnsRouteLocks: {},
   selectedId: null,
   egressResults: {},
@@ -129,6 +132,76 @@ function renderManualLoadOverlay(config) {
     button.disabled = loading;
     setRefreshButtonLoading(button, loading);
   }
+}
+
+function clearDnsRoutesCountdown() {
+  if (state.dnsRoutesCountdownTimer) {
+    window.clearInterval(state.dnsRoutesCountdownTimer);
+    state.dnsRoutesCountdownTimer = 0;
+  }
+  state.dnsRoutesDeadlineAt = 0;
+}
+
+function renderDnsRoutesLoadOverlay() {
+  const overlay = $("dnsRoutesLoadOverlay");
+  if (!overlay) {
+    return;
+  }
+
+  const loading = Boolean(state.dnsRoutesLoading);
+  const error = String(state.dnsRoutesError || "").trim();
+  const waitingForRequest = loading && !state.dnsRoutesDeadlineAt;
+  const secondsLeft = state.dnsRoutesDeadlineAt
+    ? Math.max(0, Math.ceil((state.dnsRoutesDeadlineAt - Date.now()) / 1000))
+    : 0;
+  const badge = overlay.querySelector("[data-manual-load-badge]");
+  const title = overlay.querySelector("[data-manual-load-title]");
+  const hint = overlay.querySelector("[data-manual-load-hint]");
+  const countdown = overlay.querySelector("[data-dns-routes-countdown]");
+  const button = overlay.querySelector("button");
+
+  overlay.hidden = !loading && !error;
+  overlay.classList.toggle("is-error", Boolean(error));
+  if (badge) {
+    badge.textContent = error ? "Нужно повторить" : "Автоматическая загрузка";
+  }
+  if (title) {
+    title.textContent = error
+      ? "DNS-маршруты не загрузились"
+      : waitingForRequest
+        ? "Готовим загрузку DNS-маршрутов"
+        : "Загружаем DNS-маршруты";
+  }
+  if (hint) {
+    hint.textContent = error
+      ? error
+      : waitingForRequest
+        ? "Сначала загружаются профили, затем UI читает списки domain-list с роутера."
+        : "После обновления прошивки ответ может занимать больше времени. Не закрывай страницу.";
+  }
+  if (countdown) {
+    countdown.hidden = !loading || waitingForRequest;
+    countdown.textContent = "До таймаута осталось: " + secondsLeft + " сек.";
+  }
+  if (button) {
+    button.hidden = loading;
+    button.disabled = loading;
+    setRefreshButtonLoading(button, false);
+  }
+}
+
+function beginDnsRoutesLoading() {
+  clearDnsRoutesCountdown();
+  state.dnsRoutesLoading = true;
+  state.dnsRoutesError = "";
+  state.dnsRoutesDeadlineAt = Date.now() + DNS_ROUTES_TIMEOUT_MS;
+  renderDnsRoutesLoadOverlay();
+  state.dnsRoutesCountdownTimer = window.setInterval(renderDnsRoutesLoadOverlay, 1000);
+}
+
+function finishDnsRoutesLoading() {
+  clearDnsRoutesCountdown();
+  renderDnsRoutesLoadOverlay();
 }
 
 function clone(value) {
@@ -604,10 +677,10 @@ function updateBusyControls() {
       !hasBulkDnsRoutes ||
       !hasUnlockedBulkDnsRoutes;
   }
-  if ($("dnsRoutesReloadBtn")) {
-    $("dnsRoutesReloadBtn").disabled = busy || state.dnsRoutesLoading;
-    setRefreshButtonLoading($("dnsRoutesReloadBtn"), state.dnsRoutesLoading);
-  }
+  document.querySelectorAll('[data-router-action="dns-routes-reload"]').forEach((dnsReloadBtn) => {
+    dnsReloadBtn.disabled = busy || state.dnsRoutesLoading;
+    setRefreshButtonLoading(dnsReloadBtn, state.dnsRoutesLoading);
+  });
   const runtimeLoading = state.systemHealthLoading || state.routerRuntimeLoading;
   document.querySelectorAll('[data-router-action="status-refresh"]').forEach((runtimeRefreshBtn) => {
     const loading = runtimeLoading;
@@ -697,8 +770,7 @@ function runDnsRoutesReload() {
     );
   }
 
-  state.dnsRoutesLoading = true;
-  state.dnsRoutesError = "";
+  beginDnsRoutesLoading();
   renderDnsBulkControls();
   renderDnsRoutesTable();
   updateBusyControls();
@@ -712,6 +784,7 @@ function runDnsRoutesReload() {
       state.profilesDoc = mergeDnsRulesFromRoutes(state.profilesDoc, state.dnsRoutes);
       state.dnsRoutesLoading = false;
       state.dnsRoutesError = "";
+      finishDnsRoutesLoading();
       markDnsRoutesApplied(state.dnsRoutes, state.profilesDoc.profiles);
       renderAll();
       showBanner("ok", "DNS-маршруты перечитаны с роутера.");
@@ -719,6 +792,7 @@ function runDnsRoutesReload() {
     .catch((error) => {
       state.dnsRoutesLoading = false;
       state.dnsRoutesError = error.message || String(error);
+      finishDnsRoutesLoading();
       state.appliedDnsRoutesSignature = "";
       renderAll();
       throw error;
@@ -1509,7 +1583,8 @@ function fetchJson(url, options) {
     })
     .catch((error) => {
       if (error && error.name === "AbortError") {
-        throw new Error("Роутер не ответил за 15 секунд. Повтори попытку.");
+        const timeoutSeconds = Math.max(1, Math.ceil(timeoutMs / 1000));
+        throw new Error("Роутер не ответил за " + timeoutSeconds + " секунд. Повтори попытку.");
       }
       throw error;
     })
@@ -1531,7 +1606,10 @@ function loadLiveConfig() {
 }
 
 function loadDnsRoutes() {
-  return fetchJson("/cgi-bin/router-dns-routes.cgi", { cache: "no-store", timeoutMs: READ_TIMEOUT_MS });
+  return fetchJson("/cgi-bin/router-dns-routes.cgi", {
+    cache: "no-store",
+    timeoutMs: DNS_ROUTES_TIMEOUT_MS,
+  });
 }
 
 function loadClientPolicies() {
@@ -3495,6 +3573,7 @@ function renderProfilesTable() {
 
 function renderDnsRoutesTable() {
   const body = $("dnsRoutesTableBody");
+  renderDnsRoutesLoadOverlay();
   if (!body) {
     return;
   }
@@ -6072,6 +6151,10 @@ function scheduleHashScroll() {
 
 function loadSupplementalRouterState(options) {
   const opts = options || {};
+  beginDnsRoutesLoading();
+  renderDnsBulkControls();
+  renderDnsRoutesTable();
+  updateBusyControls();
   return loadDnsRoutes()
     .then((dnsData) => {
       state.routerProxies = normalizeRouterProxyList(dnsData && dnsData.proxies);
@@ -6085,6 +6168,7 @@ function loadSupplementalRouterState(options) {
       state.profilesDoc = mergeDnsRulesFromRoutes(state.profilesDoc, state.dnsRoutes);
       state.dnsRoutesLoading = false;
       state.dnsRoutesError = "";
+      finishDnsRoutesLoading();
       markProfilesApplied(state.profilesDoc);
       markDnsRoutesApplied(state.dnsRoutes, state.profilesDoc.profiles);
       renderAll();
@@ -6093,6 +6177,7 @@ function loadSupplementalRouterState(options) {
     .catch((error) => {
       state.dnsRoutesLoading = false;
       state.dnsRoutesError = error.message;
+      finishDnsRoutesLoading();
       markProfilesApplied(state.profilesDoc);
       state.appliedDnsRoutesSignature = "";
       renderAll();
@@ -6104,6 +6189,7 @@ function loadSupplementalRouterState(options) {
 function init(message) {
   clearBanner();
   setStartupLoading(true, "Загружаем состояние роутера и список профилей...");
+  clearDnsRoutesCountdown();
   state.dnsRoutesLoading = true;
   state.dnsRoutesError = "";
   state.dnsRoutes = [];
