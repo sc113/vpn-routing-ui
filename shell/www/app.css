@@ -105,7 +105,7 @@ a {
   border: 1px solid transparent;
   border-radius: 10px;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 400;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
 }
 
@@ -209,7 +209,7 @@ a {
   border-radius: 10px;
   color: var(--muted);
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 400;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
@@ -887,6 +887,7 @@ button,
   cursor: pointer;
   transition: transform 0.15s ease, background 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
   font-size: 14px;
+  font-weight: 400;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.12);
 }
 
@@ -1055,7 +1056,7 @@ button.refresh-button.refresh-button-labeled,
   min-width: 116px;
   padding: 0 14px;
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 400;
 }
 
 .refresh-button-icon {

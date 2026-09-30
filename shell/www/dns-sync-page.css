@@ -260,7 +260,7 @@
   background: linear-gradient(135deg, #2bbda3, #158d79);
   color: #f4fffd;
   box-shadow: 0 10px 24px rgba(18, 134, 114, 0.21);
-  font-weight: 900;
+  font-weight: 400;
 }
 
 .dns-primary-action:hover,
@@ -694,7 +694,7 @@
   background: linear-gradient(135deg, #bd4050, #8f2634);
   color: #fff4f5;
   box-shadow: 0 9px 20px rgba(111, 20, 34, 0.2);
-  font-weight: 900;
+  font-weight: 400;
 }
 
 .dns-upload-action:hover {
