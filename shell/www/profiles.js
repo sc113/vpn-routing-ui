@@ -1818,6 +1818,11 @@ function defaultTransport() {
   };
 }
 
+function normalizeAlpn(value) {
+  const items = Array.isArray(value) ? value : String(value || "").split(",");
+  return items.map((item) => String(item || "").trim()).filter(Boolean);
+}
+
 function normalizeProfile(profile) {
   const next = clone(profile && typeof profile === "object" ? profile : {});
   next.id = cleanProfileId(next.id) || makeId();
@@ -1830,12 +1835,7 @@ function normalizeProfile(profile) {
   next.server = Object.assign(defaultServer(), next.server || {});
   next.server.port = toNumber(next.server.port);
   next.transport = Object.assign(defaultTransport(), next.transport || {});
-  next.transport.alpn = Array.isArray(next.transport.alpn)
-    ? next.transport.alpn.filter(Boolean)
-    : String(next.transport.alpn || "")
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean);
+  next.transport.alpn = normalizeAlpn(next.transport.alpn);
 
   if (!next.transport.path) {
     next.transport.path = "/";
@@ -2368,8 +2368,8 @@ function parseTrojanLink(link) {
       network: params.get("type") || "tcp",
       security: params.get("security") || "tls",
       serverName: params.get("sni") || url.hostname,
-      fingerprint: "",
-      alpn: [],
+      fingerprint: params.get("fp") || "",
+      alpn: normalizeAlpn(params.get("alpn")),
       host: params.get("host") || url.hostname,
       path: params.get("path") || "/",
       userAgent: "",
@@ -2401,6 +2401,12 @@ function parseVlessLink(link) {
   const id = suggestProfileId("vless");
   const url = new URL(link);
   const params = url.searchParams;
+  if (params.get("encryption") && params.get("encryption") !== "none") {
+    throw new Error("Этот ключ использует VLESS Encryption, который пока не поддерживается интерфейсом.");
+  }
+  if (params.get("pqv")) {
+    throw new Error("Этот ключ использует проверку подписи REALITY (pqv), которая пока не поддерживается интерфейсом.");
+  }
   return normalizeProfile({
     id,
     name: systemProfileName(id, "vless"),
@@ -2418,7 +2424,7 @@ function parseVlessLink(link) {
       security: params.get("security") || "none",
       serverName: params.get("sni") || url.hostname,
       fingerprint: params.get("fp") || "",
-      alpn: [],
+      alpn: normalizeAlpn(params.get("alpn")),
       host: params.get("host") || url.hostname,
       path: params.get("path") || "/",
       userAgent: "",
@@ -2483,17 +2489,22 @@ function transportFromStreamSettings(streamSettings) {
   const realitySettings = stream.realitySettings || {};
   const wsSettings = stream.wsSettings || {};
   const headers = wsSettings.headers || {};
+  const hostHeader = Object.keys(headers).find((name) => name.toLowerCase() === "host");
+  const userAgentHeader = Object.keys(headers).find((name) => name.toLowerCase() === "user-agent");
+  if (realitySettings.mldsa65Verify) {
+    throw new Error("Проверка подписи REALITY (mldsa65Verify) пока не поддерживается интерфейсом.");
+  }
   return {
     network: stream.network || "tcp",
     security: stream.security || "none",
     serverName: realitySettings.serverName || tlsSettings.serverName || "",
     fingerprint: realitySettings.fingerprint || tlsSettings.fingerprint || "",
-    alpn: Array.isArray(tlsSettings.alpn) ? tlsSettings.alpn : [],
-    host: wsSettings.host || "",
+    alpn: normalizeAlpn(tlsSettings.alpn),
+    host: wsSettings.host || headers[hostHeader] || "",
     path: wsSettings.path || "/",
-    userAgent: headers["User-Agent"] || "",
+    userAgent: headers[userAgentHeader] || "",
     allowInsecure: Boolean(tlsSettings.allowInsecure),
-    realityPublicKey: realitySettings.publicKey || "",
+    realityPublicKey: realitySettings.password || realitySettings.publicKey || "",
     realityShortId: realitySettings.shortId || "",
     realitySpiderX: realitySettings.spiderX || "",
   };
@@ -2529,6 +2540,9 @@ function profileFromConfigParts(inbound, outbound) {
   } else if (protocol === "vless" || protocol === "vmess") {
     const server = ((((outbound || {}).settings || {}).vnext || [])[0] || {});
     const user = ((server.users || [])[0] || {});
+    if (protocol === "vless" && user.encryption && user.encryption !== "none") {
+      throw new Error("VLESS Encryption пока не поддерживается интерфейсом.");
+    }
     next.server.address = server.address || "";
     next.server.port = toNumber(server.port);
     next.server.id = user.id || "";
@@ -2610,6 +2624,7 @@ function buildWsTlsSafeOutbound(outbound) {
 
 function buildOutboundForProfile(profile) {
   const next = normalizeProfile(profile);
+  validateProfileCompatibility(next, "xray");
   const tag = "out-" + next.id;
 
   if (next.protocol === "shadowsocks") {
@@ -2662,7 +2677,6 @@ function buildOutboundForProfile(profile) {
       };
       outbound.streamSettings.tlsSettings = {
         serverName: next.transport.serverName,
-        allowInsecure: Boolean(next.transport.allowInsecure),
       };
       if (next.transport.fingerprint) {
         outbound.streamSettings.tlsSettings.fingerprint = next.transport.fingerprint;
@@ -2723,9 +2737,7 @@ function buildOutboundForProfile(profile) {
           }
         : {
             id: next.server.id,
-            alterId: toNumber(next.server.alterId),
             security: next.server.vmessSecurity || "auto",
-            flow: next.server.flow || undefined,
           };
 
     const outbound = {
@@ -2749,14 +2761,19 @@ function buildOutboundForProfile(profile) {
     if (next.transport.security === "tls") {
       outbound.streamSettings.tlsSettings = {
         serverName: next.transport.serverName,
-        allowInsecure: Boolean(next.transport.allowInsecure),
       };
+      if (next.transport.fingerprint) {
+        outbound.streamSettings.tlsSettings.fingerprint = next.transport.fingerprint;
+      }
+      if (next.transport.alpn.length) {
+        outbound.streamSettings.tlsSettings.alpn = next.transport.alpn;
+      }
     } else if (next.transport.security === "reality") {
       outbound.streamSettings.realitySettings = {
         show: false,
         serverName: next.transport.serverName,
         fingerprint: next.transport.fingerprint || "chrome",
-        publicKey: next.transport.realityPublicKey,
+        password: next.transport.realityPublicKey,
         shortId: next.transport.realityShortId || "",
         spiderX: next.transport.realitySpiderX || "",
       };
@@ -2768,6 +2785,9 @@ function buildOutboundForProfile(profile) {
         path: next.transport.path || "/",
         headers: {},
       };
+      if (next.transport.userAgent) {
+        outbound.streamSettings.wsSettings.headers["User-Agent"] = next.transport.userAgent;
+      }
     }
 
     return buildWsTlsSafeOutbound(outbound);
@@ -2914,6 +2934,7 @@ function buildSingboxTransport(profile) {
 
 function buildSingboxOutboundForProfile(profile) {
   const next = normalizeProfile(profile);
+  validateProfileCompatibility(next, "sing-box");
   const tag = "out-" + next.id;
 
   if (next.protocol === "shadowsocks") {
@@ -4568,7 +4589,22 @@ function closeProfileModal() {
   resetEditorFields();
 }
 
+function validateProfileCompatibility(profile, engine) {
+  if (isXrayEngine(engine) && profile.transport.security === "tls" && profile.transport.allowInsecure) {
+    throw new Error("Xray больше не поддерживает allowInsecure. Включи проверку TLS-сертификата или выбери sing-box.");
+  }
+  if (profile.protocol === "vmess") {
+    if (profile.server.flow) {
+      throw new Error("Flow поддерживается только для VLESS. Удали Flow из профиля VMess.");
+    }
+    if (isXrayEngine(engine) && toNumber(profile.server.alterId) !== 0) {
+      throw new Error("Xray поддерживает только VMess с alterId=0. Для этого ключа выбери sing-box или получи ключ VMess AEAD.");
+    }
+  }
+}
+
 function validateProfile(profile) {
+  validateProfileCompatibility(profile, profile.engine);
   if (!profile.name.trim()) {
     throw new Error("Заполни название профиля.");
   }
@@ -4610,7 +4646,7 @@ function validateProfile(profile) {
       throw new Error("Для REALITY нужен fingerprint.");
     }
     if (!profile.transport.realityPublicKey.trim()) {
-      throw new Error("Для REALITY нужен publicKey.");
+      throw new Error("Для REALITY нужен публичный ключ сервера.");
     }
   }
 
@@ -4754,11 +4790,11 @@ function syncModalDraftFromFields(options) {
       security: $("vxSecurity").value,
       serverName: $("vxServerName").value.trim(),
       fingerprint: $("vxFingerprint").value.trim(),
-      alpn: [],
+      alpn: current.transport.alpn.slice(),
       host: $("vxWsHost").value.trim(),
       path: $("vxWsPath").value.trim() || "/",
-      userAgent: "",
-      allowInsecure: false,
+      userAgent: current.transport.userAgent,
+      allowInsecure: Boolean(current.transport.allowInsecure),
       realityPublicKey: $("vxRealityPublicKey").value.trim(),
       realityShortId: $("vxRealityShortId").value.trim(),
       realitySpiderX: $("vxRealitySpiderX").value.trim(),
