@@ -1,7 +1,7 @@
 (function () {
   const READ_TIMEOUT_MS = 15000;
   const banner = document.getElementById("banner");
-  const quickGrid = document.getElementById("quickGrid");
+  const overviewStatusLine = document.getElementById("overviewStatusLine");
   const statusRows = document.getElementById("statusRows");
   const reloadBtn = document.getElementById("reloadBtn");
   const checkUpdatesBtn = document.getElementById("checkUpdatesBtn");
@@ -11,7 +11,7 @@
   const uiUpdateInfo = document.getElementById("uiUpdateInfo");
   const state = {
     status: null,
-    profiles: [],
+    profiles: null,
     runtime: [],
     runtimeLoading: false,
     runtimeError: "",
@@ -55,12 +55,6 @@
         ? button.getAttribute("data-loading-label") || "Обновляем..."
         : "Обновить";
     }
-  }
-
-  function boolPill(ok, yesText, noText) {
-    const cls = ok ? "status-pill status-ok" : "status-pill status-bad";
-    const text = ok ? yesText : noText;
-    return `<span class="${cls}">${text}</span>`;
   }
 
   function escapeHtml(value) {
@@ -284,15 +278,14 @@
     return days + " дн. назад";
   }
 
-  function renderUpdatedChip(timestamp, label) {
+  function renderUpdatedChip(timestamp) {
     const date = timestampToDate(timestamp);
-    const title = date
-      ? "Обновлено: " + date.toLocaleString("ru-RU") + " (" + formatUpdateAge(date) + ")."
-      : "Дата появится после следующей установки или обновления.";
+    if (!date) return "";
+    const title = "Обновлено: " + date.toLocaleString("ru-RU") + " (" + formatUpdateAge(date) + ").";
     return `
-      <div class="engine-inline-chip ${date ? "" : "chip-muted"}" title="${escapeHtml(title)}">
-        <span class="label">${escapeHtml(label || "Обновлено")}</span>
-        <span class="value mono">${escapeHtml(date ? formatShortDate(date) : "нет даты")}</span>
+      <div class="engine-inline-chip" title="${escapeHtml(title)}">
+        <span class="label">Обновлено</span>
+        <span class="value mono">${escapeHtml(formatShortDate(date))}</span>
       </div>
     `;
   }
@@ -408,7 +401,10 @@
     const updateAvailable = Boolean(update && update.updateAvailable);
 
     if (uiUpdateInfo) {
-      let text = "Версия UI не проверена.";
+      const installedDate = formatUiVersionDate(state.status && state.status.uiUpdatedAt);
+      let text = installedDate
+        ? "Установлено " + installedDate + " · обновления ещё не проверены"
+        : "Обновления ещё не проверены";
       let kind = "";
       if (state.uiUpdateLoading) {
         text = "Проверяем UI...";
@@ -428,15 +424,13 @@
       checkUiUpdateBtn.textContent = state.uiUpdateLoading ? "Проверяем..." : "Проверить версию";
     }
     if (updateUiBtn) {
-      updateUiBtn.disabled = busy || state.uiUpdateLoading || !updateAvailable;
-      if (!busy) {
-        updateUiBtn.textContent = updateAvailable ? "Обновить UI" : update ? "UI актуален" : "Сначала проверить";
-        updateUiBtn.title = updateAvailable
+      updateUiBtn.disabled = busy || state.uiUpdateLoading || Boolean(update && !updateAvailable);
+      updateUiBtn.title = !update
+        ? "Проверить GitHub и предложить установить доступную версию интерфейса"
+        : updateAvailable
           ? "Установить версию из GitHub. Веб-интерфейс кратко перезапустится."
-          : update
-            ? "Установлена актуальная версия интерфейса."
-            : "Сначала нажмите «Проверить версию».";
-      }
+          : "Установлена актуальная версия интерфейса.";
+      if (!busy) updateUiBtn.textContent = "Обновить UI";
     }
   }
 
@@ -479,21 +473,6 @@
       return `<a class="chip-link mono" href="${githubReleaseUrl(engine)}" target="_blank" rel="noreferrer noopener">релизы &#8599;</a>`;
     }
     return `<a class="chip-link mono" href="${githubReleaseUrl(engine)}" target="_blank" rel="noreferrer noopener" title="Открыть релизы ${engine === "singbox" ? "sing-box" : "Xray"} на GitHub">${escapeHtml(version)} &#8599;</a>`;
-  }
-
-  function nextFreePort(profiles) {
-    const used = new Set(
-      (Array.isArray(profiles) ? profiles : [])
-        .filter((profile) => profile && profile.enabled !== false && String(profile.engine || "xray") === "xray")
-        .map((profile) => toNumber(profile.localPort))
-        .filter(Boolean)
-    );
-
-    let candidate = 2086;
-    while (used.has(candidate)) {
-      candidate += 1;
-    }
-    return candidate;
   }
 
   function fetchJson(url, options) {
@@ -578,22 +557,7 @@
 
   function renderUpdateChip(engine) {
     const info = engineUpdateInfo(engine);
-    if (state.packageUpdatesLoading && !info) {
-      return `
-        <div class="engine-inline-chip chip-muted">
-          <span class="label">Entware</span>
-          <span class="value">проверяем...</span>
-        </div>
-      `;
-    }
-    if (!info) {
-      return `
-        <div class="engine-inline-chip chip-muted">
-          <span class="label">Entware</span>
-          <span class="value">не проверено</span>
-        </div>
-      `;
-    }
+    if (!info) return "";
     if (info.compatBlocked) {
       return `
         <div class="engine-inline-chip chip-warn" title="${escapeHtml(info.compatReason || "Обновление временно отключено по совместимости.")}">
@@ -630,11 +594,12 @@
     const info = engineUpdateInfo(engine);
     const url = (info && info.releasesUrl) || githubReleaseUrl(engine);
     const version = info ? compactVersion(info.upstreamVersion) : "";
+    if (!version) return "";
     return `
       <div class="engine-inline-chip" title="Справка по upstream-релизам. Ставить их напрямую на роутер стоит только вручную и осознанно.">
         <span class="label">Upstream</span>
         <span class="value">
-          <a class="chip-link mono" href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(version || "релизы")} &#8599;</a>
+          <a class="chip-link mono" href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(version)} &#8599;</a>
         </span>
       </div>
     `;
@@ -953,105 +918,85 @@
     }
   }
 
-  function quickCard(title, chips, actionHtml) {
-    const actions = String(actionHtml || "").trim();
-    return `
-      <section class="quick-card">
-        <div class="quick-card-head">
-          <h3>${title}</h3>
-        </div>
-        ${chips ? `<div class="quick-card-body">${chips}</div>` : ""}
-        ${actions ? `<div class="quick-card-actions">${actions}</div>` : ""}
-      </section>
-    `;
+  function engineStatusLabel(installed, running) {
+    return running ? "Запущен" : installed ? "Остановлен" : "Не установлен";
   }
 
-  function renderQuickAccess() {
-    if (!quickGrid || !state.status) {
-      return;
-    }
-    const profileList = Array.isArray(state.profiles) ? state.profiles : [];
-    const activeProfiles = profileList.filter((profile) => profile && profile.enabled !== false);
+  function renderOverviewStatus() {
+    const status = state.status;
+    if (!overviewStatusLine || !status) return;
 
-    quickGrid.innerHTML = [
-      quickCard(
-        "Профили и маршруты",
-        `
-          <div class="engine-inline-chip">
-            <span class="label">Всего</span>
-            <span class="value">${profileList.length}</span>
-          </div>
-          <div class="engine-inline-chip">
-            <span class="label">Активных</span>
-            <span class="value">${activeProfiles.length}</span>
-          </div>
-          <div class="engine-inline-chip">
-            <span class="label">Следующий socks</span>
-            <span class="value mono">:${nextFreePort(profileList)}</span>
-          </div>
-          ${renderUpdatedChip(state.status.uiUpdatedAt, "UI обновлён")}
-        `,
-        `
-          <a class="button-like secondary" href="/profiles.html">Открыть профили</a>
-        `,
-      ),
-      quickCard(
-        "DNS-группы",
-        "",
-        `
-          <a class="button-like secondary" href="/dns-sync.html">Открыть DNS-группы</a>
-        `
-      ),
-    ].join("");
+    const profiles = state.profiles;
+    const active = profiles ? profiles.filter((profile) => profile && profile.enabled !== false).length : 0;
+    const profileStatus = profiles
+      ? `Ключи <strong>${active} из ${profiles.length}</strong> включены`
+      : "Статус ключей недоступен";
+    const engines = [
+      ["Xray", status.xrayInstalled, status.xrayRunning],
+      ["sing-box", status.singboxInstalled, status.singboxRunning],
+    ];
+    overviewStatusLine.innerHTML = `
+      <span title="Включённые профили среди сохранённых на роутере">
+        ${profileStatus}
+      </span>
+      ${engines.map(([name, installed, running]) => `
+        <span class="overview-engine-state${running ? " is-running" : ""}">
+          <strong>${name}</strong> ${engineStatusLabel(installed, running).toLowerCase()}
+        </span>
+      `).join("")}
+    `;
+    overviewStatusLine.hidden = false;
   }
 
   function renderEngineRow(options) {
-    const anyBusy = Boolean(state.actionBusy);
-    const installDisabled = options.installed ? " disabled" : "";
-    const removeDisabled = options.installed ? "" : " disabled";
-    const serviceDisabled = options.serviceEnabled ? "" : " disabled";
-    const updateState = updateButtonState(options.engine, options.installed);
-    const installBusy = actionBusyMatches("package", options.engine, "install");
-    const removeBusy = actionBusyMatches("package", options.engine, "remove");
-    const updateBusy = actionBusyMatches("package", options.engine, "update");
-    const startBusy = actionBusyMatches("service", options.engine, "start");
-    const stopBusy = actionBusyMatches("service", options.engine, "stop");
-    const restartBusy = actionBusyMatches("service", options.engine, "restart");
+    const busy = Boolean(state.actionBusy);
+    const engine = options.engine;
+    const updateState = updateButtonState(engine, options.installed);
+    const serviceDisabled = busy || !options.serviceEnabled ? " disabled" : "";
+    const statusText = engineStatusLabel(options.installed, options.running);
+    const packageButtons = options.installed
+      ? `
+          <button type="button" class="info" data-package-engine="${engine}" data-package-action="update"${busy ? " disabled" : updateState.disabled} title="${escapeHtml(updateState.title)}">${actionLabel("package", "update", actionBusyMatches("package", engine, "update"))}</button>
+          <button type="button" class="danger" data-package-engine="${engine}" data-package-action="remove" title="Остановить сервис и удалить пакет после подтверждения"${busy ? " disabled" : ""}>${actionLabel("package", "remove", actionBusyMatches("package", engine, "remove"))}</button>
+        `
+      : `<button type="button" class="secondary" data-package-engine="${engine}" data-package-action="install" title="Установить пакет движка из Entware"${busy ? " disabled" : ""}>${actionLabel("package", "install", actionBusyMatches("package", engine, "install"))}</button>`;
 
     return `
-      <section class="engine-row manage-engine-row">
+      <section class="engine-row manage-engine-row summary-row-${engine}">
         <div class="engine-row-main">
-          <div class="engine-row-title">${options.title}</div>
-          <div class="engine-row-bubbles engine-row-bubbles-two">
-            <div class="engine-chip-row">
-              ${boolPill(options.running, "Запущен", options.installed ? "Остановлен" : "Не установлен")}
-              <div class="engine-inline-chip">
-                <span class="label">Пакет</span>
-                <span class="value">${options.installed ? "установлен" : "не установлен"}</span>
-              </div>
-              <div class="engine-inline-chip">
-                <span class="label">Версия</span>
-                <span class="value">${renderVersionValue(options.engine, options.version)}</span>
-              </div>
-              ${renderUpdatedChip(options.updatedAt)}
+          <div class="overview-engine-heading">
+            <svg class="summary-row-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="${options.icon}"/>
+            </svg>
+            <h3 class="engine-row-title">${options.title}</h3>
+            <span class="status-pill ${options.running ? "status-ok" : "status-neutral"} tiny-status">${statusText}</span>
+          </div>
+          <div class="overview-engine-meta">
+            <div class="engine-inline-chip">
+              <span class="label">Версия</span>
+              <span class="value">${renderVersionValue(engine, options.version)}</span>
             </div>
-            <div class="engine-chip-row">
-              ${options.extraChipHtml || ""}
-              ${renderUpdateChip(options.engine)}
-              ${renderUpstreamChip(options.engine)}
+            <div class="engine-inline-chip" title="${escapeHtml(options.configPath)}">
+              <span class="label">Конфиг</span>
+              <span class="value mono">${escapeHtml(compactPath(options.configPath))}</span>
             </div>
+            ${renderUpdatedChip(options.updatedAt)}
+            ${renderUpdateChip(engine)}
+            ${renderUpstreamChip(engine)}
           </div>
         </div>
-        <div class="engine-row-actions engine-row-actions-stack">
-          <div class="action-cluster action-cluster-package">
-            <button type="button" class="secondary" data-package-engine="${options.engine}" data-package-action="install" title="Установить пакет движка из Entware"${anyBusy ? " disabled" : installDisabled}>${actionLabel("package", "install", installBusy)}</button>
-            <button type="button" class="danger" data-package-engine="${options.engine}" data-package-action="remove" title="Остановить сервис и удалить пакет после подтверждения"${anyBusy ? " disabled" : removeDisabled}>${actionLabel("package", "remove", removeBusy)}</button>
-            <button type="button" class="info" data-package-engine="${options.engine}" data-package-action="update"${anyBusy ? " disabled" : updateState.disabled} title="${escapeHtml(updateState.title)}">${actionLabel("package", "update", updateBusy)}</button>
+        <div class="overview-engine-actions">
+          <div class="overview-action-group">
+            <span class="overview-action-label">Пакет</span>
+            <div class="overview-action-buttons">${packageButtons}</div>
           </div>
-          <div class="action-cluster action-cluster-service">
-            <button type="button" class="secondary" data-engine="${options.engine}" data-engine-action="start" title="Запустить движок с конфигурацией на роутере"${anyBusy ? " disabled" : serviceDisabled}>${actionLabel("service", "start", startBusy)}</button>
-            <button type="button" class="danger" data-engine="${options.engine}" data-engine-action="stop" title="Остановить движок и прервать подключения через него"${anyBusy ? " disabled" : serviceDisabled}>${actionLabel("service", "stop", stopBusy)}</button>
-            <button type="button" class="warning" data-engine="${options.engine}" data-engine-action="restart" title="Перезапустить движок с сохранённой конфигурацией. Соединения через него кратко прервутся."${anyBusy ? " disabled" : serviceDisabled}>${actionLabel("service", "restart", restartBusy)}</button>
+          <div class="overview-action-group">
+            <span class="overview-action-label">Сервис</span>
+            <div class="overview-action-buttons">
+              <button type="button" class="secondary" data-engine="${engine}" data-engine-action="start" title="Запустить движок с конфигурацией на роутере"${serviceDisabled}>${actionLabel("service", "start", actionBusyMatches("service", engine, "start"))}</button>
+              <button type="button" class="danger" data-engine="${engine}" data-engine-action="stop" title="Остановить движок и прервать подключения через него"${serviceDisabled}>${actionLabel("service", "stop", actionBusyMatches("service", engine, "stop"))}</button>
+              <button type="button" class="warning" data-engine="${engine}" data-engine-action="restart" title="Перезапустить движок с сохранённой конфигурацией. Соединения через него кратко прервутся."${serviceDisabled}>${actionLabel("service", "restart", actionBusyMatches("service", engine, "restart"))}</button>
+            </div>
           </div>
         </div>
       </section>
@@ -1060,51 +1005,40 @@
 
   function renderEngineRows() {
     renderPackageUpdateSummary();
-    if (!statusRows || !state.status) {
+    const status = state.status;
+    if (!statusRows || !status) {
       return;
     }
-    const xrayInstalled = Boolean(state.status.xrayInstalled);
-    const singboxInstalled = Boolean(state.status.singboxInstalled);
-    const singboxService = Boolean(state.status.singboxService);
-    const xrayConfigPath = state.status.xrayConfigPath || "/opt/etc/xray/config.json";
-    const singboxConfigPath = state.status.singboxConfigPath || "/opt/etc/sing-box/config.json";
 
     statusRows.innerHTML = [
       renderEngineRow({
         engine: "xray",
         title: "Xray",
-        installed: xrayInstalled,
-        running: Boolean(state.status.xrayRunning),
-        serviceEnabled: xrayInstalled,
-        version: state.status.xrayVersion,
-        updatedAt: state.status.xrayUpdatedAt,
-        extraChipHtml: `
-          <div class="engine-inline-chip" title="${escapeHtml(xrayConfigPath)}">
-            <span class="label">Config</span>
-            <span class="value mono">${escapeHtml(compactPath(xrayConfigPath))}</span>
-          </div>
-        `,
+        installed: Boolean(status.xrayInstalled),
+        running: Boolean(status.xrayRunning),
+        serviceEnabled: Boolean(status.xrayInstalled),
+        version: status.xrayVersion,
+        updatedAt: status.xrayUpdatedAt,
+        configPath: status.xrayConfigPath || "/opt/etc/xray/config.json",
+        icon: "M4 5h16v6H4zM4 13h16v6H4zM8 8h.01M8 16h.01",
       }),
       renderEngineRow({
         engine: "singbox",
         title: "sing-box",
-        installed: singboxInstalled,
-        running: Boolean(state.status.singboxRunning),
-        serviceEnabled: singboxInstalled && singboxService,
-        version: state.status.singboxVersion,
-        updatedAt: state.status.singboxUpdatedAt,
-        extraChipHtml: `
-          <div class="engine-inline-chip" title="${escapeHtml(singboxConfigPath)}">
-            <span class="label">Config</span>
-            <span class="value mono">${escapeHtml(compactPath(singboxConfigPath))}</span>
-          </div>
-        `,
+        installed: Boolean(status.singboxInstalled),
+        running: Boolean(status.singboxRunning),
+        serviceEnabled: Boolean(status.singboxInstalled && status.singboxService),
+        version: status.singboxVersion,
+        updatedAt: status.singboxUpdatedAt,
+        configPath: status.singboxConfigPath || "/opt/etc/sing-box/config.json",
+        icon: "M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM4 7.5l8 4.5 8-4.5M12 12v9",
       }),
     ].join("");
   }
 
   function renderAll() {
-    renderQuickAccess();
+    renderOverviewStatus();
+    renderUiUpdateControls();
     renderEngineRows();
   }
 
@@ -1163,8 +1097,8 @@
       }
 
       state.status = statusResult.value;
-      const profilesDoc = profilesResult.status === "fulfilled" ? profilesResult.value : { profiles: [] };
-      state.profiles = Array.isArray(profilesDoc.profiles) ? profilesDoc.profiles : [];
+      const profiles = profilesResult.status === "fulfilled" ? profilesResult.value?.profiles : null;
+      state.profiles = Array.isArray(profiles) ? profiles : null;
 
       renderAll();
 

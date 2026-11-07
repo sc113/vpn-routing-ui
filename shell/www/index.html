@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="/cgi-bin/ui-asset.cgi/app.css">
 </head>
 <body>
-  <div class="app-shell">
+  <div class="app-shell overview-page-shell">
     <aside class="app-sidebar" aria-label="Основные разделы">
       <div class="app-sidebar-brand">
         <strong>VPN Routing UI</strong>
@@ -34,64 +34,53 @@
       <div class="app-sidebar-foot">Keenetic + Entware</div>
     </aside>
 
-    <main class="page">
+    <main class="page overview-page">
     <section class="hero">
       <h1>Обзор</h1>
+      <div id="overviewStatusLine" class="overview-status-line" aria-label="Краткий статус" hidden></div>
     </section>
 
     <div id="banner" class="banner"></div>
 
-    <section class="panel">
-      <div class="toolbar">
-        <div>
-          <h2>Быстрый доступ</h2>
-        </div>
-        <div class="toolbar-right">
-          <button id="reloadBtn" class="refresh-button" type="button" aria-label="Обновить данные обзора" title="Перечитать профили и состояние сервисов с роутера" aria-busy="false" data-loading-label="Обновляем...">
-            <span data-refresh-text>Обновить</span>
-          </button>
-        </div>
-      </div>
-      <div id="quickGrid" class="grid two quick-grid"></div>
-    </section>
-
-    <section class="panel updates-panel">
-      <div class="toolbar">
-        <div>
+    <div class="overview-management">
+      <section class="panel">
+        <div class="toolbar">
           <h2>Обновления</h2>
         </div>
-      </div>
-      <div class="update-list">
-        <div class="update-line">
-          <div class="update-line-main">
-            <strong>VPN Routing UI</strong>
-            <span id="uiUpdateInfo" class="update-line-status" aria-live="polite">Версия UI не проверена.</span>
+        <div class="update-list">
+          <div class="update-line">
+            <div class="update-line-main">
+              <strong>VPN Routing UI</strong>
+              <span id="uiUpdateInfo" class="update-line-status" aria-live="polite">Версия UI не проверена.</span>
+            </div>
+            <div class="update-line-actions">
+              <button id="updateUiBtn" class="info" type="button" title="Проверить GitHub и предложить установить доступную версию интерфейса">Обновить UI</button>
+              <button id="checkUiUpdateBtn" class="secondary" type="button" title="Сравнить установленную версию интерфейса с версией в GitHub">Проверить версию</button>
+            </div>
           </div>
-          <div class="update-line-actions">
-            <button id="checkUiUpdateBtn" class="secondary" type="button" title="Сравнить установленную версию интерфейса с версией в GitHub">Проверить версию</button>
-            <button id="updateUiBtn" class="info" type="button" title="Сначала нажмите «Проверить версию»" disabled>Обновить UI</button>
+          <div class="update-line">
+            <div class="update-line-main">
+              <strong>Xray и sing-box</strong>
+              <span id="engineUpdateInfo" class="update-line-status" aria-live="polite">Версии не проверены.</span>
+            </div>
+            <div class="update-line-actions">
+              <button id="checkUpdatesBtn" class="secondary" type="button" title="Проверить доступные версии Xray и sing-box в Entware и GitHub">Проверить версии</button>
+            </div>
           </div>
         </div>
-        <div class="update-line">
-          <div class="update-line-main">
-            <strong>Xray и sing-box</strong>
-            <span id="engineUpdateInfo" class="update-line-status" aria-live="polite">Версии не проверены.</span>
-          </div>
-          <div class="update-line-actions">
-            <button id="checkUpdatesBtn" class="secondary" type="button" title="Проверить доступные версии Xray и sing-box в Entware и GitHub">Проверить версии</button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="toolbar">
-        <div>
+      </section>
+      <section class="panel overview-services">
+        <div class="toolbar">
           <h2>Ядра и сервисы</h2>
+          <div class="toolbar-right">
+            <button id="reloadBtn" class="refresh-button" type="button" aria-label="Обновить состояние движков" title="Перечитать состояние движков с роутера" aria-busy="false" data-loading-label="Обновляем...">
+              <span data-refresh-text>Обновить</span>
+            </button>
+          </div>
         </div>
-      </div>
-      <div id="statusRows" class="engine-rows"></div>
-    </section>
+        <div id="statusRows" class="engine-rows"></div>
+      </section>
+    </div>
     </main>
   </div>
 
