@@ -9,14 +9,16 @@
   <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Обзор - VPN Routing UI</title>
+  <link rel="icon" type="image/svg+xml" href="/cgi-bin/ui-asset.cgi/logo.svg">
   <link rel="stylesheet" href="/cgi-bin/ui-asset.cgi/app.css">
 </head>
 <body>
   <div class="app-shell overview-page-shell">
     <aside class="app-sidebar" aria-label="Основные разделы">
-      <div class="app-sidebar-brand">
+      <a class="app-sidebar-brand" href="/index.html" title="Открыть обзор VPN Routing UI">
+        <img src="/cgi-bin/ui-asset.cgi/logo.svg" width="32" height="32" alt="">
         <strong>VPN Routing UI</strong>
-      </div>
+      </a>
       <nav class="app-sidebar-nav">
         <a class="side-tab active" href="/index.html" aria-current="page">
           <span class="side-tab-icon" aria-hidden="true">◷</span>
@@ -60,8 +62,8 @@
           </div>
           <div class="update-line">
             <div class="update-line-main">
-              <strong>Xray и sing-box</strong>
-              <span id="engineUpdateInfo" class="update-line-status" aria-live="polite">Версии не проверены.</span>
+              <strong>Пакеты Xray и sing-box</strong>
+              <span id="engineUpdateInfo" class="update-line-status" aria-live="polite">Проверка пакетов Entware ещё не запускалась.</span>
             </div>
             <div class="update-line-actions">
               <button id="checkUpdatesBtn" class="secondary" type="button" title="Проверить доступные версии Xray и sing-box в Entware и GitHub">Проверить версии</button>

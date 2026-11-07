@@ -1,5 +1,7 @@
 # VPN Routing UI
 
+[![Логотип VPN Routing UI](shell/www/logo.svg)](https://github.com/sc113/vpn-routing-ui)
+
 [![Keenetic + Entware](https://img.shields.io/badge/Keenetic%20%2B%20Entware-router-22a699)](#требования)
 [![Shell CGI](https://img.shields.io/badge/backend-POSIX%20sh%20CGI-555)](#структура-проекта)
 [![License: BSD 3-Clause](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)

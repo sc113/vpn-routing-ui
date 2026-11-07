@@ -470,7 +470,7 @@
   function renderVersionValue(engine, versionText) {
     const version = compactVersion(versionText);
     if (!version) {
-      return `<a class="chip-link mono" href="${githubReleaseUrl(engine)}" target="_blank" rel="noreferrer noopener">релизы &#8599;</a>`;
+      return "—";
     }
     return `<a class="chip-link mono" href="${githubReleaseUrl(engine)}" target="_blank" rel="noreferrer noopener" title="Открыть релизы ${engine === "singbox" ? "sing-box" : "Xray"} на GitHub">${escapeHtml(version)} &#8599;</a>`;
   }
@@ -521,29 +521,35 @@
       return;
     }
 
-    let text = "Версии не проверены.";
+    let text = "Проверка пакетов Entware ещё не запускалась.";
     let kind = "";
     if (state.packageUpdatesLoading) {
-      text = "Проверяем версии...";
+      text = "Проверяем пакеты Entware...";
     } else if (state.packageUpdatesError) {
-      text = "Не удалось проверить версии.";
+      text = "Не удалось проверить пакеты Entware.";
       kind = "error";
     } else if (state.packageUpdates) {
+      const { xray, singbox, refreshOk } = state.packageUpdates;
       const available = [
-        ["Xray", state.packageUpdates.xray],
-        ["sing-box", state.packageUpdates.singbox],
+        ["Xray", xray],
+        ["sing-box", singbox],
       ]
         .filter((entry) => {
           const info = entry[1];
-          return info && info.opkgHasUpdate && !info.opkgPrerelease && !info.compatBlocked;
+          return info && info.safeOpkgUpdate;
         })
         .map((entry) => entry[0]);
       if (available.length) {
-        text = "Доступно обновление: " + available.join(", ") + ".";
+        text = "Через Entware можно обновить " + available.join(", ") + ".";
         kind = "available";
       } else {
-        text = "Доступных обновлений нет.";
+        text = "Через Entware нет доступных пакетов для обновления.";
         kind = "ok";
+      }
+      if (refreshOk === false) {
+        text = "По имеющимся спискам Entware " +
+          (available.length ? "можно обновить " + available.join(", ") + "." : "подходящих обновлений нет.");
+        kind = "warn";
       }
     }
 
@@ -555,37 +561,23 @@
     }
   }
 
-  function renderUpdateChip(engine) {
+  function renderUpdateChip(engine, updateState) {
     const info = engineUpdateInfo(engine);
     if (!info) return "";
-    if (info.compatBlocked) {
-      return `
-        <div class="engine-inline-chip chip-warn" title="${escapeHtml(info.compatReason || "Обновление временно отключено по совместимости.")}">
-          <span class="label">Entware</span>
-          <span class="value mono">${escapeHtml(compactVersion(info.opkgVersion) || "заблокировано")}</span>
-        </div>
-      `;
-    }
-    if (info.opkgHasUpdate && info.opkgPrerelease) {
-      return `
-        <div class="engine-inline-chip chip-warn" title="В репозитории есть prerelease, автоматическое безопасное обновление отключено.">
-          <span class="label">Entware</span>
-          <span class="value mono">${escapeHtml(compactVersion(info.opkgVersion) || "prerelease")}</span>
-        </div>
-      `;
-    }
-    if (info.opkgHasUpdate) {
-      return `
-        <div class="engine-inline-chip chip-ok" title="Доступно безопасное обновление через opkg.">
-          <span class="label">Entware</span>
-          <span class="value mono">${escapeHtml(compactVersion(info.opkgVersion) || "обновление")}</span>
-        </div>
-      `;
-    }
+    const version = String(info.opkgVersion || "").trim();
+    const available = !updateState.disabled;
+    const tone = !version ? "chip-muted" : available ? "chip-ok" : "chip-warn";
+    const suffix = available
+      ? "доступен"
+      : info.opkgPrerelease
+        ? "предрелиз"
+        : info.compatBlocked
+          ? "ограничение MIPS"
+          : "недоступен";
     return `
-      <div class="engine-inline-chip chip-muted" title="По данным Entware безопасного обновления сейчас нет.">
-        <span class="label">Entware</span>
-        <span class="value">актуально</span>
+      <div class="engine-inline-chip ${tone}" title="${escapeHtml(updateState.title)}">
+        <span class="label">${version ? "Кандидат Entware" : "Entware"}</span>
+        <span class="value">${version ? escapeHtml(version + " · " + suffix) : "обновление не найдено"}</span>
       </div>
     `;
   }
@@ -596,8 +588,8 @@
     const version = info ? compactVersion(info.upstreamVersion) : "";
     if (!version) return "";
     return `
-      <div class="engine-inline-chip" title="Справка по upstream-релизам. Ставить их напрямую на роутер стоит только вручную и осознанно.">
-        <span class="label">Upstream</span>
+      <div class="engine-inline-chip" title="Последний релиз проекта на GitHub. Кнопка «Обновить» устанавливает пакет из Entware.">
+        <span class="label">Релиз GitHub</span>
         <span class="value">
           <a class="chip-link mono" href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(version)} &#8599;</a>
         </span>
@@ -628,7 +620,7 @@
     if (info.opkgHasUpdate && info.opkgPrerelease) {
       return {
         disabled: " disabled",
-        title: "В Entware сейчас только prerelease. Безопасное обновление отключено.",
+        title: "Entware предлагает предрелиз. Установка этой версии отключена.",
       };
     }
     if (info.compatBlocked) {
@@ -640,12 +632,12 @@
     if (!info.safeOpkgUpdate) {
       return {
         disabled: " disabled",
-        title: "Безопасных обновлений через opkg сейчас нет.",
+        title: "По имеющимся спискам Entware подходящего пакета для обновления нет.",
       };
     }
     return {
       disabled: "",
-      title: "Обновить пакет через Entware/opkg.",
+      title: "Установить предложенную Entware версию пакета.",
     };
   }
 
@@ -973,7 +965,7 @@
           </div>
           <div class="overview-engine-meta">
             <div class="engine-inline-chip">
-              <span class="label">Версия</span>
+              <span class="label">Установлено</span>
               <span class="value">${renderVersionValue(engine, options.version)}</span>
             </div>
             <div class="engine-inline-chip" title="${escapeHtml(options.configPath)}">
@@ -981,7 +973,7 @@
               <span class="value mono">${escapeHtml(compactPath(options.configPath))}</span>
             </div>
             ${renderUpdatedChip(options.updatedAt)}
-            ${renderUpdateChip(engine)}
+            ${renderUpdateChip(engine, updateState)}
             ${renderUpstreamChip(engine)}
           </div>
         </div>
@@ -1060,7 +1052,7 @@
       renderEngineRows();
       if (!opts.quiet) {
         if (refresh && data.refreshOk === false) {
-          showBanner("warn", "Индексы Entware перечитать не удалось полностью, но текущий статус обновлений всё равно показан.");
+          showBanner("warn", "Не удалось обновить все списки Entware. Показаны версии по имеющимся данным.");
         } else {
           showBanner("ok", refresh ? "Версии Xray и sing-box проверены." : "Версии Xray и sing-box загружены.");
         }

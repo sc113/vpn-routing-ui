@@ -16,6 +16,9 @@ case "$ASSET" in
   root.js|profiles.js|dns-sync.js|system-health-widget.js)
     CONTENT_TYPE='application/javascript; charset=utf-8'
     ;;
+  logo.svg)
+    CONTENT_TYPE='image/svg+xml'
+    ;;
   *)
     printf 'Status: 404 Not Found\n'
     printf 'Content-Type: text/plain; charset=utf-8\n\n'

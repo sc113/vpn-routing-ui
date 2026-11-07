@@ -69,8 +69,22 @@ a {
 
 .app-sidebar-brand {
   display: grid;
-  gap: 4px;
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
   padding: 4px 12px 20px;
+}
+
+.app-sidebar-brand img {
+  display: block;
+  width: 32px;
+  height: 32px;
+}
+
+.app-sidebar-brand:focus-visible {
+  outline: 2px solid #82ddc8;
+  outline-offset: 2px;
+  border-radius: 8px;
 }
 
 .app-sidebar-brand strong {
@@ -278,7 +292,8 @@ a {
   color: #62d89d;
 }
 
-.update-line-status.available {
+.update-line-status.available,
+.update-line-status.warn {
   color: #f7c86e;
 }
 
@@ -880,8 +895,11 @@ a {
 }
 
 .overview-engine-meta .value {
+  max-width: none;
   font-size: 13px;
   font-weight: 600;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .overview-engine-meta .chip-warn .value {

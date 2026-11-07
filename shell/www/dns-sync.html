@@ -9,15 +9,17 @@
   <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>DNS-списки — VPN Routing UI</title>
+  <link rel="icon" type="image/svg+xml" href="/cgi-bin/ui-asset.cgi/logo.svg">
   <link rel="stylesheet" href="/cgi-bin/ui-asset.cgi/app.css">
   <link rel="stylesheet" href="/cgi-bin/ui-asset.cgi/dns-sync-page.css">
 </head>
 <body>
   <div class="app-shell dns-page-shell">
     <aside class="app-sidebar" aria-label="Основные разделы">
-      <div class="app-sidebar-brand">
+      <a class="app-sidebar-brand" href="/index.html" title="Открыть обзор VPN Routing UI">
+        <img src="/cgi-bin/ui-asset.cgi/logo.svg" width="32" height="32" alt="">
         <strong>VPN Routing UI</strong>
-      </div>
+      </a>
       <nav class="app-sidebar-nav">
         <a class="side-tab" href="/index.html">
           <span class="side-tab-icon" aria-hidden="true">◷</span>
@@ -229,8 +231,8 @@
         <summary>
           <span class="dns-advanced-icon" aria-hidden="true">↧</span>
           <span>
-            <strong>Импорт и резервная копия</strong>
-            <small>Открыть текстовый файл, скачать копию или загрузить список вручную</small>
+            <strong>Импорт и экспорт DNS-списков</strong>
+            <small>Открыть, скачать или применить файл DNS-списков</small>
           </span>
           <span class="dns-details-chevron" aria-hidden="true">⌄</span>
         </summary>
@@ -250,7 +252,7 @@
 
           <div class="dns-transfer-actions">
             <button id="openFileBtn" class="secondary" type="button" title="Открыть текстовый файл как черновик DNS-списков">Открыть файл</button>
-            <button id="downloadTextBtn" class="secondary" type="button" title="Скачать текущий текст списков вместе с правками черновика">Скачать копию</button>
+            <button id="downloadTextBtn" class="secondary" type="button" title="Скачать текущий текст списков вместе с правками черновика">Скачать файл</button>
             <button id="copyTextBtn" class="ghost" type="button" title="Скопировать текущий текст DNS-списков в буфер обмена">Копировать текст</button>
             <button id="validateTextBtn" class="info" type="button" title="Проверить формат и состав файла перед загрузкой">Проверить файл</button>
             <button id="applyTextBtn" class="warning" type="button" title="Добавить или обновить группы на роутере из текущего текста после подтверждения">Загрузить на роутер</button>
