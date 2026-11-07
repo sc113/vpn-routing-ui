@@ -52,7 +52,7 @@ download_to_file() {
     if curl -fsSL --connect-timeout 10 --max-time 120 --retry 2 --retry-delay 2 --retry-connrefused --retry-max-time 120 "$url" -o "$destination"; then
       return 0
     fi
-    DOWNLOAD_ERROR="curl не смог скачать installer с GitHub после повторных попыток. Проверьте интернет, DNS и доступ к raw.githubusercontent.com."
+    DOWNLOAD_ERROR="curl не смог скачать архив обновления. Проверьте доступ к github.com и codeload.github.com."
     return 1
   fi
 
@@ -64,7 +64,7 @@ download_to_file() {
     if wget -q -T 30 -t 3 -O "$destination" "$url"; then
       return 0
     fi
-    DOWNLOAD_ERROR="wget-ssl не смог скачать installer с GitHub после повторных попыток. Проверьте интернет, DNS и сертификаты."
+    DOWNLOAD_ERROR="wget-ssl не смог скачать архив обновления. Проверьте доступ к github.com и codeload.github.com."
     return 1
   fi
 
@@ -140,7 +140,7 @@ if [ -z "$WORK_DIR" ] || [ ! -d "$WORK_DIR" ]; then
   rm -rf "$LOCK_DIR" "$PID_FILE"
   exit 1
 fi
-INSTALL_FILE="$WORK_DIR/install.sh"
+ARCHIVE_FILE="$WORK_DIR/source.tar.gz"
 STAMP=$(date +%Y%m%d-%H%M%S 2>/dev/null || now_epoch)
 BACKUP_PATH="$BACKUP_DIR/ui-$STAMP"
 
@@ -168,15 +168,25 @@ else
   BACKUP_PATH=""
 fi
 
-INSTALL_URL="https://raw.githubusercontent.com/$REPO_OWNER/$REPO_NAME/$REMOTE_COMMIT/install.sh"
+ARCHIVE_URL="https://github.com/$REPO_OWNER/$REPO_NAME/archive/$REMOTE_COMMIT.tar.gz"
 write_state "running" "Скачиваем UI $(short_commit "$REMOTE_COMMIT") из GitHub." "$BACKUP_PATH"
-if ! download_to_file "$INSTALL_URL" "$INSTALL_FILE" >> "$LOG_FILE" 2>&1; then
-  write_state "failed" "${DOWNLOAD_ERROR:-Не удалось скачать installer из GitHub.}" "$BACKUP_PATH"
+if ! download_to_file "$ARCHIVE_URL" "$ARCHIVE_FILE" >> "$LOG_FILE" 2>&1; then
+  write_state "failed" "${DOWNLOAD_ERROR:-Не удалось скачать архив обновления из GitHub.}" "$BACKUP_PATH"
   exit 1
 fi
 
-if ! grep -q 'VPN_ROUTING_UI_REPO_OWNER' "$INSTALL_FILE"; then
-  write_state "failed" "GitHub вернул некорректный installer." "$BACKUP_PATH"
+if ! tar -xzf "$ARCHIVE_FILE" -C "$WORK_DIR" >> "$LOG_FILE" 2>&1; then
+  write_state "failed" "Не удалось распаковать архив обновления UI." "$BACKUP_PATH"
+  exit 1
+fi
+
+set -- "$WORK_DIR"/*/install.sh
+INSTALL_FILE="$1"
+SOURCE_DIR="${INSTALL_FILE%/*}"
+if [ "$#" -ne 1 ] || [ ! -d "$SOURCE_DIR/shell/www" ] ||
+   [ ! -d "$SOURCE_DIR/shell/cgi" ] || [ ! -d "$SOURCE_DIR/shell/router" ] ||
+   ! grep -q 'VPN_ROUTING_UI_REPO_OWNER' "$INSTALL_FILE"; then
+  write_state "failed" "В архиве GitHub отсутствует корректный установщик UI." "$BACKUP_PATH"
   exit 1
 fi
 

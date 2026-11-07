@@ -250,15 +250,11 @@
     return Number.isFinite(date.getTime()) ? date : null;
   }
 
-  function formatShortDate(date) {
-    if (!date) {
-      return "не датировано";
-    }
-    return date.toLocaleDateString("ru-RU", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "2-digit",
-    });
+  function formatIsoDate(date) {
+    const year = String(date.getFullYear()).padStart(4, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return year + "-" + month + "-" + day;
   }
 
   function formatUpdateAge(date) {
@@ -281,11 +277,13 @@
   function renderUpdatedChip(timestamp) {
     const date = timestampToDate(timestamp);
     if (!date) return "";
-    const title = "Обновлено: " + date.toLocaleString("ru-RU") + " (" + formatUpdateAge(date) + ").";
+    const day = formatIsoDate(date);
+    const time = date.toLocaleTimeString("ru-RU");
+    const title = "Обновлено: " + day + " " + time + " (" + formatUpdateAge(date) + ").";
     return `
       <div class="engine-inline-chip" title="${escapeHtml(title)}">
         <span class="label">Обновлено</span>
-        <span class="value mono">${escapeHtml(formatShortDate(date))}</span>
+        <span class="value mono">${day}</span>
       </div>
     `;
   }
@@ -355,16 +353,11 @@
     if (!date) {
       return "";
     }
-    const day = date.toLocaleDateString("ru-RU", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    });
     const time = date.toLocaleTimeString("ru-RU", {
       hour: "2-digit",
       minute: "2-digit",
     });
-    return day + " " + time;
+    return formatIsoDate(date) + " " + time;
   }
 
   function installedUiVersionLabel(update) {

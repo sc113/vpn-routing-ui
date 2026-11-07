@@ -3435,12 +3435,6 @@ function probeSummary(profile) {
   return `<span class="${textClass}">${escapeHtml(probe.text)}</span>`;
 }
 
-function enabledPill(profile) {
-  return profile.enabled
-    ? '<span class="status-pill status-ok tiny-status">Включён</span>'
-    : '<span class="status-pill status-neutral tiny-status">Выключен</span>';
-}
-
 function renderSummary() {
   const grid = $("summaryGrid");
   if (!grid) {
@@ -3562,18 +3556,18 @@ function renderProfilesTable() {
     .map((profile, index) => {
       const selected = profile.id === state.selectedId ? " selected" : "";
       const muted = profile.enabled ? "" : " muted-row";
-      const toggleClass = profile.enabled ? "warning" : "secondary";
-      const toggleText = profile.enabled ? "Выкл" : "Вкл";
+      const toggleClass = profile.enabled ? "status-ok" : "status-neutral";
+      const toggleText = profile.enabled ? "Вкл" : "Выкл";
       const toggleTitle = profile.enabled ? "Выключить профиль на роутере" : "Включить профиль на роутере";
       const disabledAttr = state.saveInFlight ? " disabled" : "";
       return `
         <tr class="${selected}${muted}" data-select-profile="${escapeHtml(profile.id)}">
           <td class="mono col-num">${index + 1}</td>
-          <td>${escapeHtml(protocolLabel(profile.protocol))}</td>
-          <td class="profile-cell">
-            <div class="profile-cell-name">${escapeHtml(profile.name)}</div>
-            <div class="profile-cell-meta">${enabledPill(profile)}</div>
+          <td class="col-profile-state">
+            <button type="button" class="profile-toggle status-pill ${toggleClass}" role="switch" aria-checked="${profile.enabled}" aria-label="Профиль ${escapeHtml(profile.name)}" data-toggle-profile="${escapeHtml(profile.id)}" title="${toggleTitle}"${disabledAttr}>${toggleText}</button>
           </td>
+          <td>${escapeHtml(protocolLabel(profile.protocol))}</td>
+          <td class="profile-cell profile-cell-name">${escapeHtml(profile.name)}</td>
           <td class="mono">${escapeHtml(profile.server.address || "-")}</td>
           <td class="mono profile-number">${profile.server.port ? escapeHtml(profile.server.port) : "-"}</td>
           <td>${escapeHtml(transportLabel(profile))}</td>
@@ -3584,7 +3578,6 @@ function renderProfilesTable() {
           <td class="delay-cell profile-number">${probeSummary(profile)}</td>
           <td>
             <div class="row-actions">
-              <button type="button" class="${toggleClass} compact-action-btn" data-toggle-profile="${escapeHtml(profile.id)}" title="${toggleTitle}" aria-label="${toggleTitle}"${disabledAttr}>${toggleText}</button>
               <button type="button" class="secondary icon-btn" data-edit-profile="${escapeHtml(profile.id)}" title="Редактировать профиль" aria-label="Редактировать профиль"${disabledAttr}>&#9998;</button>
               <button type="button" class="danger icon-btn" data-delete-profile="${escapeHtml(profile.id)}" title="Убрать профиль из списка. Удаление на роутере применяется при отправке изменений." aria-label="Удалить профиль"${disabledAttr}>&times;</button>
             </div>
@@ -3598,7 +3591,7 @@ function renderProfilesTable() {
     rows ||
     `
       <tr>
-        <td colspan="12" class="table-empty">Пока нет ни одного профиля. Нажми «Добавить ключ» и открой первый профиль в отдельном окне.</td>
+        <td colspan="13" class="table-empty">Пока нет ни одного профиля. Нажми «Добавить ключ» и открой первый профиль в отдельном окне.</td>
       </tr>
     `;
 }

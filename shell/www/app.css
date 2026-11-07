@@ -1412,8 +1412,34 @@ textarea {
   width: 56px;
 }
 
-.profiles-table .col-actions {
-  width: 160px;
+#profile-list .col-actions {
+  width: 88px;
+}
+
+#profile-list .col-profile-state {
+  width: 72px;
+  text-align: center;
+}
+
+#profilesTableBody td,
+.dns-routes-table td {
+  padding-block: 5px;
+}
+
+button.profile-toggle {
+  min-width: 56px;
+  min-height: 30px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+button.profile-toggle.status-ok:enabled:hover {
+  background: rgba(22, 163, 74, 0.22);
+}
+
+button.profile-toggle.status-neutral:enabled:hover {
+  background: rgba(159, 176, 200, 0.18);
 }
 
 .row-actions {
@@ -1448,10 +1474,6 @@ textarea {
 .profile-cell-name {
   font-weight: bold;
   line-height: 1.35;
-}
-
-.profile-cell-meta {
-  margin-top: 6px;
 }
 
 .dns-routes-table {
@@ -1792,7 +1814,7 @@ textarea {
 .dns-route-lock-btn {
   width: 36px;
   min-width: 36px;
-  height: 34px;
+  height: 32px;
   padding: 0;
   border: 1px solid rgba(93, 108, 129, 0.46);
   background: rgba(18, 24, 34, 0.8);
@@ -1912,6 +1934,7 @@ textarea {
 .dns-route-select {
   width: 100%;
   min-width: 0;
+  padding: 7px 12px;
   background: rgba(18, 24, 34, 0.9);
   border-color: rgba(93, 108, 129, 0.46);
   color: var(--text);
