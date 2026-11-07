@@ -53,7 +53,7 @@
     if (text) {
       text.textContent = loading
         ? button.getAttribute("data-loading-label") || "Обновляем..."
-        : button.getAttribute("data-idle-label") || "Обновить";
+        : "Обновить";
     }
   }
 
@@ -431,6 +431,11 @@
       updateUiBtn.disabled = busy || state.uiUpdateLoading || !updateAvailable;
       if (!busy) {
         updateUiBtn.textContent = updateAvailable ? "Обновить UI" : update ? "UI актуален" : "Сначала проверить";
+        updateUiBtn.title = updateAvailable
+          ? "Установить версию из GitHub. Веб-интерфейс кратко перезапустится."
+          : update
+            ? "Установлена актуальная версия интерфейса."
+            : "Сначала нажмите «Проверить версию».";
       }
     }
   }
@@ -652,7 +657,7 @@
     if (!info) {
       return {
         disabled: " disabled",
-        title: "Сначала нажми Проверить обновления.",
+        title: "Сначала нажмите «Проверить версии».",
       };
     }
     if (info.opkgHasUpdate && info.opkgPrerelease) {
@@ -948,19 +953,14 @@
     }
   }
 
-  function quickCard(title, hint, chips, actionHtml) {
+  function quickCard(title, chips, actionHtml) {
     const actions = String(actionHtml || "").trim();
     return `
       <section class="quick-card">
         <div class="quick-card-head">
-          <div>
-            <h3>${title}</h3>
-            <p class="hint">${hint}</p>
-          </div>
+          <h3>${title}</h3>
         </div>
-        <div class="quick-card-body">
-          ${chips}
-        </div>
+        ${chips ? `<div class="quick-card-body">${chips}</div>` : ""}
         ${actions ? `<div class="quick-card-actions">${actions}</div>` : ""}
       </section>
     `;
@@ -976,7 +976,6 @@
     quickGrid.innerHTML = [
       quickCard(
         "Профили и маршруты",
-        "Одна страница для ключей, DNS-маршрутов, ProxyN runtime и полного маршрута устройств.",
         `
           <div class="engine-inline-chip">
             <span class="label">Всего</span>
@@ -991,32 +990,14 @@
             <span class="value mono">:${nextFreePort(profileList)}</span>
           </div>
           ${renderUpdatedChip(state.status.uiUpdatedAt, "UI обновлён")}
-          <div class="engine-inline-chip chip-muted">
-            <span class="label">Разделы</span>
-            <span class="value">ключи / DNS / клиенты</span>
-          </div>
         `,
         `
-          <a class="button-like" href="/profiles.html">Открыть конфигурации</a>
+          <a class="button-like secondary" href="/profiles.html">Открыть профили</a>
         `,
       ),
       quickCard(
         "DNS-группы",
-        "Однокнопочная синхронизация domain-list групп с версионируемым DNS-файлом в GitHub.",
-        `
-          <div class="engine-inline-chip chip-muted">
-            <span class="label">Формат</span>
-            <span class="value">dns-groups v2</span>
-          </div>
-          <div class="engine-inline-chip chip-muted">
-            <span class="label">Версии</span>
-            <span class="value">до секунды</span>
-          </div>
-          <div class="engine-inline-chip chip-muted">
-            <span class="label">Направление</span>
-            <span class="value">автоматически</span>
-          </div>
-        `,
+        "",
         `
           <a class="button-like secondary" href="/dns-sync.html">Открыть DNS-группы</a>
         `
@@ -1063,14 +1044,14 @@
         </div>
         <div class="engine-row-actions engine-row-actions-stack">
           <div class="action-cluster action-cluster-package">
-            <button type="button" class="success" data-package-engine="${options.engine}" data-package-action="install"${anyBusy ? " disabled" : installDisabled}>${actionLabel("package", "install", installBusy)}</button>
-            <button type="button" class="danger" data-package-engine="${options.engine}" data-package-action="remove"${anyBusy ? " disabled" : removeDisabled}>${actionLabel("package", "remove", removeBusy)}</button>
+            <button type="button" class="secondary" data-package-engine="${options.engine}" data-package-action="install" title="Установить пакет движка из Entware"${anyBusy ? " disabled" : installDisabled}>${actionLabel("package", "install", installBusy)}</button>
+            <button type="button" class="danger" data-package-engine="${options.engine}" data-package-action="remove" title="Остановить сервис и удалить пакет после подтверждения"${anyBusy ? " disabled" : removeDisabled}>${actionLabel("package", "remove", removeBusy)}</button>
             <button type="button" class="info" data-package-engine="${options.engine}" data-package-action="update"${anyBusy ? " disabled" : updateState.disabled} title="${escapeHtml(updateState.title)}">${actionLabel("package", "update", updateBusy)}</button>
           </div>
           <div class="action-cluster action-cluster-service">
-            <button type="button" class="success" data-engine="${options.engine}" data-engine-action="start"${anyBusy ? " disabled" : serviceDisabled}>${actionLabel("service", "start", startBusy)}</button>
-            <button type="button" class="danger" data-engine="${options.engine}" data-engine-action="stop"${anyBusy ? " disabled" : serviceDisabled}>${actionLabel("service", "stop", stopBusy)}</button>
-            <button type="button" class="warning" data-engine="${options.engine}" data-engine-action="restart"${anyBusy ? " disabled" : serviceDisabled}>${actionLabel("service", "restart", restartBusy)}</button>
+            <button type="button" class="secondary" data-engine="${options.engine}" data-engine-action="start" title="Запустить движок с конфигурацией на роутере"${anyBusy ? " disabled" : serviceDisabled}>${actionLabel("service", "start", startBusy)}</button>
+            <button type="button" class="danger" data-engine="${options.engine}" data-engine-action="stop" title="Остановить движок и прервать подключения через него"${anyBusy ? " disabled" : serviceDisabled}>${actionLabel("service", "stop", stopBusy)}</button>
+            <button type="button" class="warning" data-engine="${options.engine}" data-engine-action="restart" title="Перезапустить движок с сохранённой конфигурацией. Соединения через него кратко прервутся."${anyBusy ? " disabled" : serviceDisabled}>${actionLabel("service", "restart", restartBusy)}</button>
           </div>
         </div>
       </section>

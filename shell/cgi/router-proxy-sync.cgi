@@ -1,7 +1,7 @@
 #!/bin/sh
 
 json_escape() {
-  printf '%s' "$1" | sed ':a;N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\r/\\r/g;s/\n/\\n/g'
+  printf '%s' "$1" | sed ':a;$!N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\t/\\t/g;s/\r/\\r/g;s/\n/\\n/g'
 }
 
 bool_json() {

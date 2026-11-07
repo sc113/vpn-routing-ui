@@ -10,8 +10,7 @@ const startup = source.lastIndexOf("bootstrap().catch((error) => {");
 assert.ok(startup > 0);
 function loadUI() {
   const context = vm.createContext({
-    URL, Uint8Array,
-    atob: value => Buffer.from(value, "base64").toString("binary"),
+    URL, URLSearchParams, TextDecoder, Uint8Array, atob,
     document: { getElementById: () => null },
   });
   vm.runInContext(source.slice(0, startup), context);
@@ -62,6 +61,56 @@ test("REALITY exports engine-specific fields without renaming stored profile dat
   assert.equal(s.flow, "xtls-rprx-vision");
   assert.deepEqual(plain(p), before);
   assert.equal(ui.profileFromConfigParts({}, x).transport.realityPublicKey, KEY);
+});
+
+test("Keenetic proxy descriptions display UTF-8 and preserve literal backslashes", () => {
+  const ui = loadUI();
+  const payload = { proxies: [
+    { name: "\\xf0\\x9f\\x87\\xac\\xf0\\x9f\\x87\\xa7 [UK] \\xd0\\x90\\xd0\\xbd\\xd0\\xb3\\xd0\\xbb\\xd0\\xb8\\xd1\\x8f" },
+    { name: "Literal \\\\x61, malformed \\xff, and 100%" },
+  ] };
+  ui.decodeRouterProxyNames(payload);
+  assert.equal(payload.proxies[0].name, "🇬🇧 [UK] Англия");
+  assert.equal(payload.proxies[1].name, "Literal \\\\x61, malformed \\xff, and 100%");
+});
+
+test("URI keys import labels without changing the connection credentials", () => {
+  const ui = loadUI();
+  const name = "🇬🇧 [UK] Англия + 100% & #1";
+  const encoded = encodeURIComponent(name);
+  const examples = [
+    ["ss://aes-128-gcm:secret@example.com:443", "password", "secret"],
+    ["trojan://secret@example.com:443", "password", "secret"],
+    ["socks://user:secret@example.com:1080", "pass", "secret"],
+    ["vless://" + UUID + "@example.com:443", "id", UUID],
+  ];
+  for (const [uri, credential, value] of examples) {
+    const profile = ui.parseLinkToProfile(uri + "#" + encoded);
+    assert.equal(profile.name, name);
+    assert.equal(profile.server[credential], value);
+  }
+});
+
+test("key labels normalize separators and accept partially escaped text", () => {
+  const ui = loadUI();
+  const key = "socks://user:secret@example.com:1080";
+  const profile = ui.parseLinkToProfile(key + "#🇬🇧%20UK+1&2%0A%00|%22 100%");
+  assert.equal(profile.name, "🇬🇧 UK+1&2 ｜＂ 100%");
+  assert.equal(profile.server.pass, "secret");
+  assert.equal(ui.parseLinkToProfile(key + "#%00%0A").name, ui.parseLinkToProfile(key).name);
+});
+
+test("VMess labels decode the UTF-8 JSON remark and accept legacy single-byte links", () => {
+  const ui = loadUI();
+  const data = { add: "example.com", port: "443", id: UUID, ps: "🇬🇧 [UK] Англия" };
+  const key = "vmess://" + Buffer.from(JSON.stringify(data)).toString("base64url");
+  const profile = ui.parseLinkToProfile(key);
+  assert.equal(profile.name, data.ps);
+  assert.equal(profile.server.id, UUID);
+
+  data.ps = "Café";
+  const legacy = "vmess://" + Buffer.from(JSON.stringify(data), "latin1").toString("base64");
+  assert.equal(ui.parseLinkToProfile(legacy).name, data.ps);
 });
 
 for (const protocol of ["vless", "vmess", "trojan"]) {

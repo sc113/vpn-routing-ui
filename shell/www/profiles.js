@@ -71,6 +71,7 @@ const state = {
   modalMode: null,
   modalProfileId: null,
   modalDraft: null,
+  modalPreviousName: null,
 };
 
 function $(id) {
@@ -87,7 +88,7 @@ function setRefreshButtonLoading(button, loading) {
   if (text) {
     text.textContent = loading
       ? button.getAttribute("data-loading-label") || "Обновляем..."
-      : button.getAttribute("data-idle-label") || "Обновить";
+      : "Обновить";
   }
 }
 
@@ -102,33 +103,19 @@ function renderManualLoadOverlay(config) {
   overlay.hidden = loaded && !loading && !error;
   overlay.classList.toggle("is-error", Boolean(error));
 
-  const badge = overlay.querySelector("[data-manual-load-badge]");
-  const section = overlay.querySelector("[data-manual-load-section] span:last-child");
   const title = overlay.querySelector("[data-manual-load-title]");
   const hint = overlay.querySelector("[data-manual-load-hint]");
   const button = overlay.querySelector("button");
-  if (badge) {
-    badge.textContent = error ? "Нужно повторить" : loading ? "Загружаем" : "Обновление вручную";
-  }
-  if (section) {
-    section.textContent = config.sectionTitle;
-  }
-  if (title) {
-    title.textContent = error
-      ? "Не удалось загрузить данные"
-      : loading
-        ? config.loadingTitle
-        : config.emptyTitle;
+  const statusText = error ? "Не удалось загрузить" : loading ? "Загружаем…" : "Данные ещё не загружены";
+  if (title && title.textContent !== statusText) {
+    title.textContent = statusText;
   }
   if (hint) {
-    hint.textContent = error
-      ? error
-      : loading
-        ? "Обычно это занимает несколько секунд."
-        : config.emptyHint;
+    hint.textContent = error;
+    hint.hidden = !error;
   }
   if (button) {
-    button.setAttribute("data-idle-label", error ? "Повторить" : config.buttonLabel);
+    button.hidden = loading;
     button.disabled = loading;
     setRefreshButtonLoading(button, loading);
   }
@@ -154,34 +141,30 @@ function renderDnsRoutesLoadOverlay() {
   const secondsLeft = state.dnsRoutesDeadlineAt
     ? Math.max(0, Math.ceil((state.dnsRoutesDeadlineAt - Date.now()) / 1000))
     : 0;
-  const badge = overlay.querySelector("[data-manual-load-badge]");
   const title = overlay.querySelector("[data-manual-load-title]");
   const hint = overlay.querySelector("[data-manual-load-hint]");
   const countdown = overlay.querySelector("[data-dns-routes-countdown]");
+  const progress = overlay.querySelector("[data-dns-routes-progress]");
   const button = overlay.querySelector("button");
 
   overlay.hidden = !loading && !error;
   overlay.classList.toggle("is-error", Boolean(error));
-  if (badge) {
-    badge.textContent = error ? "Нужно повторить" : "Автоматическая загрузка";
-  }
-  if (title) {
-    title.textContent = error
-      ? "DNS-маршруты не загрузились"
-      : waitingForRequest
-        ? "Готовим загрузку DNS-маршрутов"
-        : "Загружаем DNS-маршруты";
+  const statusText = error ? "Не удалось загрузить" : waitingForRequest ? "Готовим запрос…" : "Загружаем…";
+  if (title && title.textContent !== statusText) {
+    title.textContent = statusText;
   }
   if (hint) {
-    hint.textContent = error
-      ? error
-      : waitingForRequest
-        ? "Сначала загружаются профили, затем UI читает списки domain-list с роутера."
-        : "После обновления прошивки ответ может занимать больше времени. Не закрывай страницу.";
+    hint.textContent = error;
+    hint.hidden = !error;
   }
   if (countdown) {
     countdown.hidden = !loading || waitingForRequest;
-    countdown.textContent = "До таймаута осталось: " + secondsLeft + " сек.";
+    countdown.textContent = "Таймаут через " + secondsLeft + " сек.";
+  }
+  if (progress) {
+    progress.hidden = !loading || waitingForRequest;
+    progress.max = DNS_ROUTES_TIMEOUT_MS / 1000;
+    progress.value = secondsLeft;
   }
   if (button) {
     button.hidden = loading;
@@ -640,6 +623,9 @@ function updateBusyControls() {
   }
   if ($("replaceLinkBtn")) {
     $("replaceLinkBtn").disabled = busy;
+  }
+  if ($("restoreProfileNameBtn")) {
+    $("restoreProfileNameBtn").disabled = busy;
   }
   if ($("duplicateBtn")) {
     $("duplicateBtn").disabled = busy;
@@ -1153,26 +1139,6 @@ function displayDnsRouteDescription(route) {
   return description || (route && route.groupId) || "";
 }
 
-function hostCountText(count) {
-  const value = Number(count) || 0;
-  return value + " шт.";
-}
-
-function dnsRouteHostSummary(route) {
-  const includes = Array.isArray(route && route.includes)
-    ? route.includes.map((item) => String(item || "").trim()).filter(Boolean)
-    : [];
-  const includeCount = Math.max(0, toNumber(route && route.includeCount) || includes.length);
-  if (!includeCount) {
-    return null;
-  }
-
-  return {
-    title: includes.length ? `В списке ${hostCountText(includeCount)}.` : "Подробный список доступен после перечитывания.",
-    text: hostCountText(includeCount),
-  };
-}
-
 function isRouterProxyTarget(value) {
   return Boolean(normalizeRouterProxyId(value));
 }
@@ -1566,7 +1532,15 @@ function fetchJson(url, options) {
   }
   return fetch(url, requestOptions)
     .then(async (response) => {
-      const data = await response.json().catch(() => ({}));
+      const data = await response.json().catch((error) => {
+        if (error.name !== "SyntaxError") {
+          throw error;
+        }
+        if (response.ok) {
+          throw new Error("Роутер вернул некорректный ответ JSON.");
+        }
+        return {};
+      });
       const errorMessage = data && (data.error || data.message);
       const errorDetails = data && data.details ? String(data.details) : "";
       const fullError =
@@ -1605,11 +1579,28 @@ function loadLiveConfig() {
   return fetchJson("/cgi-bin/xray-config.cgi", { cache: "no-store", timeoutMs: READ_TIMEOUT_MS });
 }
 
+function decodeRouterProxyNames(data) {
+  for (const proxy of (data && data.proxies) || []) {
+    if (typeof proxy.name !== "string") {
+      continue;
+    }
+    // Keenetic writes UTF-8 bytes in running-config as \xHH.
+    proxy.name = proxy.name.replace(/\\\\|(?:\\x[0-9a-f]{2})+/gi, (sequence) => {
+      try {
+        return decodeURIComponent(sequence.replace(/\\x/gi, "%"));
+      } catch {
+        return sequence;
+      }
+    });
+  }
+  return data;
+}
+
 function loadDnsRoutes() {
   return fetchJson("/cgi-bin/router-dns-routes.cgi", {
     cache: "no-store",
     timeoutMs: DNS_ROUTES_TIMEOUT_MS,
-  });
+  }).then(decodeRouterProxyNames);
 }
 
 function loadClientPolicies() {
@@ -1617,7 +1608,8 @@ function loadClientPolicies() {
 }
 
 function loadRouterRuntime() {
-  return fetchJson("/cgi-bin/router-runtime-status.cgi", { cache: "no-store", timeoutMs: READ_TIMEOUT_MS });
+  return fetchJson("/cgi-bin/router-runtime-status.cgi", { cache: "no-store", timeoutMs: READ_TIMEOUT_MS })
+    .then(decodeRouterProxyNames);
 }
 
 function loadSystemHealth() {
@@ -1725,11 +1717,11 @@ function hasExpectedLayout() {
       $("profileModal") &&
       $("openCreateBtn") &&
       $("profileNameInput") &&
+      $("restoreProfileNameBtn") &&
       $("profileRouterBadge") &&
       $("profileRouterProxyId") &&
       $("profileDnsRules") &&
       $("modalTitle") &&
-      $("modalSubtitle") &&
       $("selectedPingDetails") &&
       $("selectedProfileJsonPreview") &&
       $("generatedConfigPreview")
@@ -1823,6 +1815,14 @@ function normalizeAlpn(value) {
   return items.map((item) => String(item || "").trim()).filter(Boolean);
 }
 
+function normalizeProfileName(value) {
+  return String(value ?? "")
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, " ")
+    .replaceAll("|", "｜")
+    .replaceAll('"', "＂")
+    .trim();
+}
+
 function normalizeProfile(profile) {
   const next = clone(profile && typeof profile === "object" ? profile : {});
   next.id = cleanProfileId(next.id) || makeId();
@@ -1841,7 +1841,7 @@ function normalizeProfile(profile) {
     next.transport.path = "/";
   }
 
-  const rawName = String(next.name || "").trim();
+  const rawName = normalizeProfileName(next.name);
   next.name =
     !rawName || isSystemLikeProfileName(rawName, next.id, next.protocol, next.engine)
       ? systemProfileName(next)
@@ -2306,6 +2306,15 @@ function applyRouterFixes(profile) {
   return next;
 }
 
+function profileNameFromLink(link) {
+  const hashIndex = link.indexOf("#");
+  if (hashIndex === -1) {
+    return "";
+  }
+  const fragment = link.slice(hashIndex + 1).replace(/[^%]+/g, encodeURIComponent);
+  return normalizeProfileName(new URLSearchParams("name=" + fragment).get("name"));
+}
+
 function parseShadowsocksLink(link) {
   const id = suggestProfileId("shadowsocks");
   const withoutPrefix = link.replace(/^ss:\/\//, "");
@@ -2335,7 +2344,7 @@ function parseShadowsocksLink(link) {
 
   return normalizeProfile({
     id,
-    name: systemProfileName(id, "shadowsocks"),
+    name: profileNameFromLink(link),
     enabled: true,
     engine: "xray",
     protocol: "shadowsocks",
@@ -2355,7 +2364,7 @@ function parseTrojanLink(link) {
   const params = url.searchParams;
   return applyRouterFixes({
     id,
-    name: systemProfileName(id, "trojan"),
+    name: profileNameFromLink(link),
     enabled: true,
     engine: "xray",
     protocol: "trojan",
@@ -2383,7 +2392,7 @@ function parseSocksLink(link) {
   const url = new URL(link);
   return normalizeProfile({
     id,
-    name: systemProfileName(id, "socks"),
+    name: profileNameFromLink(link),
     enabled: true,
     engine: "xray",
     protocol: "socks",
@@ -2409,7 +2418,7 @@ function parseVlessLink(link) {
   }
   return normalizeProfile({
     id,
-    name: systemProfileName(id, "vless"),
+    name: profileNameFromLink(link),
     enabled: true,
     engine: "xray",
     protocol: "vless",
@@ -2438,14 +2447,21 @@ function parseVlessLink(link) {
 
 function parseVmessLink(link) {
   const id = suggestProfileId("vmess");
-  const source = JSON.parse(decodeBase64Url(link.replace(/^vmess:\/\//, "")));
+  const raw = decodeBase64Url(link.replace(/^vmess:\/\//, "").split("#", 1)[0]);
+  let json = raw;
+  try {
+    json = new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(raw, (byte) => byte.charCodeAt(0)));
+  } catch {
+    // Keep compatibility with older links encoded as single-byte text.
+  }
+  const source = JSON.parse(json);
   const alpn = String(source.alpn || "")
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
   return normalizeProfile({
     id,
-    name: systemProfileName(id, "vmess"),
+    name: normalizeProfileName(source.ps) || profileNameFromLink(link),
     enabled: true,
     engine: "xray",
     protocol: "vmess",
@@ -3263,7 +3279,7 @@ function renderDnsBulkControls() {
   }
 
   select.title = "Выбери профиль или прямое подключение для массового назначения всех незакреплённых DNS-групп.";
-  button.title = "Переназначить все DNS-группы без замка на выбранный вариант.";
+  button.title = "Переназначить незакреплённые группы в интерфейсе. Для применения нажмите «Отправить на роутер».";
 }
 
 function bulkAssignAssignedDnsRoutes(profileId) {
@@ -3378,7 +3394,8 @@ function resetEditorFields() {
     $("selectedPingStatus").innerHTML = '<span class="status-pill status-neutral">Не проверялся</span>';
   }
   if ($("selectedPingDetails")) {
-    $("selectedPingDetails").textContent = "Проверка подтверждает выход через локальный SOCKS-порт профиля.";
+    $("selectedPingDetails").hidden = true;
+    $("selectedPingDetails").textContent = "";
   }
   renderProtocolGroups("shadowsocks");
 }
@@ -3425,112 +3442,106 @@ function enabledPill(profile) {
 }
 
 function renderSummary() {
-  if (!$("summaryGrid")) {
+  const grid = $("summaryGrid");
+  if (!grid) {
     return;
   }
+
   const status = state.status || {};
   const profiles = getProfiles();
-  const activeProfiles = profiles.filter((profile) => profile.enabled);
-  const xrayInstalled = Boolean(status.xrayInstalled);
-  const xrayRunning = Boolean(status.xrayRunning);
-  const singboxInstalled = Boolean(status.singboxInstalled);
-  const singboxRunning = Boolean(status.singboxRunning);
-  const singboxService = Boolean(status.singboxService);
+  const activeCount = profiles.filter((profile) => profile.enabled).length;
   const actionBusy = Boolean(
     state.saveInFlight ||
       state.dnsRefreshInFlight ||
       state.vpnRefreshInFlight ||
       state.clientPolicyBusyMac
   );
-  const xrayDisabled = xrayInstalled && !actionBusy ? "" : " disabled";
-  const singboxDisabled = singboxInstalled && singboxService && !actionBusy ? "" : " disabled";
-  const dnsRefreshDisabled = actionBusy ? " disabled" : "";
+  const engines = [
+    {
+      id: "xray",
+      name: "Xray",
+      installed: status.xrayInstalled,
+      running: status.xrayRunning,
+      version: status.xrayVersion,
+      configPath: status.xrayConfigPath || "/opt/etc/xray/config.json",
+      canControl: status.xrayInstalled,
+      icon: "M4 5h16v6H4zM4 13h16v6H4zM8 8h.01M8 16h.01",
+    },
+    {
+      id: "singbox",
+      name: "sing-box",
+      installed: status.singboxInstalled,
+      running: status.singboxRunning,
+      version: status.singboxVersion,
+      configPath: status.singboxConfigPath || "/opt/etc/sing-box/config.json",
+      canControl: status.singboxInstalled && status.singboxService,
+      icon: "M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM4 7.5l8 4.5 8-4.5M12 12v9",
+    },
+  ];
+  const engineRows = engines.map((engine) => {
+    const disabled = engine.canControl && !actionBusy ? "" : " disabled";
+    const stateLabel = engine.running ? "Запущен" : engine.installed ? "Остановлен" : "Не установлен";
+    return `
+      <section class="engine-row summary-row summary-row-${engine.id}">
+        <div class="summary-row-main">
+          <div class="summary-row-heading">
+            <svg class="summary-row-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="${engine.icon}"/>
+            </svg>
+            <h3 class="engine-row-title">${engine.name}</h3>
+            <span class="status-pill ${engine.running ? "status-ok" : "status-neutral"} tiny-status">${stateLabel}</span>
+          </div>
+          <dl class="summary-row-meta">
+            <div>
+              <dt>Версия</dt>
+              <dd>${renderVersionValue(engine.id, engine.version)}</dd>
+            </div>
+            <div title="${escapeHtml(engine.configPath)}">
+              <dt>Конфиг</dt>
+              <dd class="mono">${escapeHtml(compactPath(engine.configPath))}</dd>
+            </div>
+          </dl>
+        </div>
+        <div class="engine-row-actions summary-row-actions">
+          <button type="button" class="secondary" data-engine="${engine.id}" data-engine-action="start" title="Запустить движок с сохранённой конфигурацией"${disabled}>Старт</button>
+          <button type="button" class="danger" data-engine="${engine.id}" data-engine-action="stop" title="Остановить движок и прервать подключения через него"${disabled}>Стоп</button>
+          <button type="button" class="warning" data-engine="${engine.id}" data-engine-action="restart" title="Перезапустить движок с сохранённой конфигурацией"${disabled}>Рестарт</button>
+        </div>
+      </section>
+    `;
+  });
+  const resetDisabled = actionBusy ? " disabled" : "";
   const dnsRefreshLabel = state.dnsRefreshInFlight ? "DNS reset..." : "DNS reset";
-  const vpnRefreshDisabled = actionBusy ? " disabled" : "";
   const vpnRefreshLabel = state.vpnRefreshInFlight ? "VPN reset..." : "VPN reset";
-  const xrayConfigPath = status.xrayConfigPath || "/opt/etc/xray/config.json";
-  const singboxConfigPath = status.singboxConfigPath || "/opt/etc/sing-box/config.json";
+  const dnsCount = state.dnsRoutesLoading || state.dnsRoutesError ? "—" : getDnsRoutes().length;
 
-  $("summaryGrid").innerHTML = `
-    <section class="engine-row summary-row">
+  grid.innerHTML = engineRows.join("") + `
+    <section class="engine-row summary-row summary-row-profiles">
       <div class="summary-row-main">
-        <div class="engine-row-title">Xray</div>
-        <div class="engine-row-bubbles summary-row-bubbles">
-          ${boolPill(xrayRunning, "Запущен", xrayInstalled ? "Остановлен" : "Не установлен")}
-          <div class="engine-inline-chip">
-            <span class="label">Ядро</span>
-            <span class="value">${xrayInstalled ? "установлен" : "не установлен"}</span>
-          </div>
-          <div class="engine-inline-chip">
-            <span class="label">Версия</span>
-            <span class="value">${renderVersionValue("xray", status.xrayVersion)}</span>
-          </div>
-          <div class="engine-inline-chip" title="${escapeHtml(xrayConfigPath)}">
-            <span class="label">Config</span>
-            <span class="value mono">${escapeHtml(compactPath(xrayConfigPath))}</span>
-          </div>
+        <div class="summary-row-heading">
+          <svg class="summary-row-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="m3 7 9-4 9 4-9 4-9-4zm0 5 9 4 9-4M3 17l9 4 9-4"/>
+          </svg>
+          <h3 class="engine-row-title">Профили</h3>
         </div>
+        <dl class="summary-row-meta">
+          <div>
+            <dt>Активных</dt>
+            <dd>${activeCount} из ${profiles.length}</dd>
+          </div>
+          <div title="Следующий порт, свободный среди профилей">
+            <dt>След. SOCKS</dt>
+            <dd class="mono">:${nextFreePort()}</dd>
+          </div>
+          <div>
+            <dt>DNS-маршрутов</dt>
+            <dd>${dnsCount}</dd>
+          </div>
+        </dl>
       </div>
       <div class="engine-row-actions summary-row-actions">
-        <button type="button" class="secondary" data-engine="xray" data-engine-action="start"${xrayDisabled}>Старт</button>
-        <button type="button" class="danger" data-engine="xray" data-engine-action="stop"${xrayDisabled}>Стоп</button>
-        <button type="button" class="warning" data-engine="xray" data-engine-action="restart"${xrayDisabled}>Рестарт</button>
-      </div>
-    </section>
-    <section class="engine-row summary-row">
-      <div class="summary-row-main">
-        <div class="engine-row-title">sing-box</div>
-        <div class="engine-row-bubbles summary-row-bubbles">
-          ${boolPill(singboxRunning, "Запущен", singboxInstalled ? "Остановлен" : "Не установлен")}
-          <div class="engine-inline-chip">
-            <span class="label">Ядро</span>
-            <span class="value">${singboxInstalled ? "есть в системе" : "не установлен"}</span>
-          </div>
-          <div class="engine-inline-chip">
-            <span class="label">Версия</span>
-            <span class="value">${renderVersionValue("singbox", status.singboxVersion)}</span>
-          </div>
-          <div class="engine-inline-chip" title="${escapeHtml(singboxConfigPath)}">
-            <span class="label">Config</span>
-            <span class="value mono">${escapeHtml(compactPath(singboxConfigPath))}</span>
-          </div>
-        </div>
-      </div>
-      <div class="engine-row-actions summary-row-actions">
-        <button type="button" class="secondary" data-engine="singbox" data-engine-action="start"${singboxDisabled}>Старт</button>
-        <button type="button" class="danger" data-engine="singbox" data-engine-action="stop"${singboxDisabled}>Стоп</button>
-        <button type="button" class="warning" data-engine="singbox" data-engine-action="restart"${singboxDisabled}>Рестарт</button>
-      </div>
-    </section>
-    <section class="engine-row summary-row">
-      <div class="summary-row-main">
-        <div class="engine-row-title">Профили</div>
-        <div class="engine-row-bubbles summary-row-bubbles">
-          <div class="engine-inline-chip">
-            <span class="label">Всего</span>
-            <span class="value">${profiles.length}</span>
-          </div>
-          <div class="engine-inline-chip">
-            <span class="label">Активных</span>
-            <span class="value">${activeProfiles.length}</span>
-          </div>
-          <div class="engine-inline-chip">
-            <span class="label">Следующий socks</span>
-            <span class="value mono">:${nextFreePort()}</span>
-          </div>
-          <div class="engine-inline-chip">
-            <span class="label">DNS-правил</span>
-            <span class="value">${getDnsRoutes().length}</span>
-          </div>
-          <div class="engine-inline-chip">
-            <span class="label">UI</span>
-            <span class="value mono">/profiles.html</span>
-          </div>
-        </div>
-      </div>
-      <div class="engine-row-actions summary-row-actions">
-        <button type="button" class="info" data-router-action="dns-refresh"${dnsRefreshDisabled} title="Пересобрать live DNS-маршруты и перезапустить dns-proxy intercept">${dnsRefreshLabel}</button>
-        <button type="button" class="warning" data-router-action="vpn-refresh"${vpnRefreshDisabled} title="Перезапустить только реально используемые движки и обновить VPN-слой без полной пересборки DNS">${vpnRefreshLabel}</button>
+        <button type="button" class="info" data-router-action="dns-refresh"${resetDisabled} title="Пересобрать действующие DNS-маршруты и кэш адресов групп.">${dnsRefreshLabel}</button>
+        <button type="button" class="warning" data-router-action="vpn-refresh"${resetDisabled} title="Перезапустить используемые VPN-движки и обновить подключения ProxyN.">${vpnRefreshLabel}</button>
       </div>
     </section>
   `;
@@ -3564,18 +3575,18 @@ function renderProfilesTable() {
             <div class="profile-cell-meta">${enabledPill(profile)}</div>
           </td>
           <td class="mono">${escapeHtml(profile.server.address || "-")}</td>
-          <td class="mono">${profile.server.port ? escapeHtml(profile.server.port) : "-"}</td>
+          <td class="mono profile-number">${profile.server.port ? escapeHtml(profile.server.port) : "-"}</td>
           <td>${escapeHtml(transportLabel(profile))}</td>
           <td>${escapeHtml(securityLabel(profile))}</td>
           <td class="mono">${escapeHtml(profile.engine)}</td>
           <td class="mono">${escapeHtml(getEffectiveRouterProxyId(profile, profile.id) || "auto")}</td>
-          <td class="mono">${profile.localPort ? ":" + escapeHtml(profile.localPort) : "auto"}</td>
-          <td class="delay-cell">${probeSummary(profile)}</td>
+          <td class="mono profile-number">${profile.localPort ? ":" + escapeHtml(profile.localPort) : "auto"}</td>
+          <td class="delay-cell profile-number">${probeSummary(profile)}</td>
           <td>
             <div class="row-actions">
               <button type="button" class="${toggleClass} compact-action-btn" data-toggle-profile="${escapeHtml(profile.id)}" title="${toggleTitle}" aria-label="${toggleTitle}"${disabledAttr}>${toggleText}</button>
               <button type="button" class="secondary icon-btn" data-edit-profile="${escapeHtml(profile.id)}" title="Редактировать профиль" aria-label="Редактировать профиль"${disabledAttr}>&#9998;</button>
-              <button type="button" class="danger icon-btn" data-delete-profile="${escapeHtml(profile.id)}" title="Удалить профиль" aria-label="Удалить профиль"${disabledAttr}>&times;</button>
+              <button type="button" class="danger icon-btn" data-delete-profile="${escapeHtml(profile.id)}" title="Убрать профиль из списка. Удаление на роутере применяется при отправке изменений." aria-label="Удалить профиль"${disabledAttr}>&times;</button>
             </div>
           </td>
         </tr>
@@ -3603,7 +3614,7 @@ function renderDnsRoutesTable() {
   if (state.dnsRoutesLoading) {
     body.innerHTML = `
       <tr>
-        <td colspan="7" class="table-empty">
+        <td colspan="8" class="table-empty">
           <span class="status-pill status-pending">Загружаем DNS-маршруты...</span>
         </td>
       </tr>
@@ -3614,7 +3625,7 @@ function renderDnsRoutesTable() {
   if (state.dnsRoutesError) {
     body.innerHTML = `
       <tr>
-        <td colspan="7" class="table-empty">Не удалось загрузить DNS-маршруты: ${escapeHtml(state.dnsRoutesError)}</td>
+        <td colspan="8" class="table-empty">Не удалось загрузить DNS-маршруты: ${escapeHtml(state.dnsRoutesError)}</td>
       </tr>
     `;
     return;
@@ -3686,12 +3697,8 @@ function renderDnsRoutesTable() {
         const renderedOptions = currentProfileId
           ? baseOptions.replace(optionSelectedNeedle, optionSelectedNeedle + " selected")
           : baseOptions;
-        const hostSummary = dnsRouteHostSummary(route);
-        const hostSummaryHtml = hostSummary
-          ? `<div class="dns-route-hosts" title="${escapeHtml(hostSummary.title)}">${escapeHtml(hostSummary.text)}</div>`
-          : "";
-        const descriptionLineHtml = escapeHtml(displayDnsRouteDescription(route));
-        const descriptionHtml = `<div class="dns-route-description">${descriptionLineHtml}</div>${hostSummaryHtml}`;
+        const description = escapeHtml(displayDnsRouteDescription(route));
+        const includeCount = route.includeCount || route.includes.length;
         const locked = isDnsRouteLocked(route.groupId);
         const lockTitle = locked
           ? "Замок включён: массовое переопределение не изменит этот DNS-список."
@@ -3713,13 +3720,14 @@ function renderDnsRoutesTable() {
           rowClasses.push("dns-route-row-locked");
         }
 
-          return `
+        return `
           <tr class="${rowClasses.join(" ")}">
             <td class="mono col-num">${index + 1}</td>
             <td class="mono">${escapeHtml(route.groupId)}</td>
-            <td>${descriptionHtml}</td>
+            <td class="dns-route-description" title="${description}">${description}</td>
+            <td class="dns-route-count">${includeCount}</td>
             <td>
-              <select class="${selectClass}" data-dns-route-select="${escapeHtml(route.groupId)}" title="Выбери профиль или прямое подключение для этого DNS-списка"${disabledAttr}>
+              <select class="${selectClass}" data-dns-route-select="${escapeHtml(route.groupId)}" title="Выберите профиль или прямое подключение. Для применения нажмите «Отправить на роутер»."${disabledAttr}>
                 ${renderedOptions}
               </select>
             </td>
@@ -3741,7 +3749,7 @@ function renderDnsRoutesTable() {
       .join("") ||
     `
       <tr>
-        <td colspan="7" class="table-empty">На роутере пока нет ни одного списка domain-list для маршрутизации.</td>
+        <td colspan="8" class="table-empty">На роутере пока нет ни одного списка domain-list для маршрутизации.</td>
       </tr>
     `;
 }
@@ -3754,11 +3762,6 @@ function renderProxyRuntimeTable() {
     loaded: state.statusSnapshotLoaded,
     loading: state.systemHealthLoading || state.routerRuntimeLoading,
     error: state.systemHealthError || state.routerRuntimeError,
-    sectionTitle: "ProxyN и runtime",
-    emptyTitle: "Данные ProxyN ещё не загружены",
-    emptyHint: "Здесь появятся состояние VPN-маршрутов, процессы и локальные SOCKS-сессии.",
-    loadingTitle: "Загружаем состояние ProxyN",
-    buttonLabel: "Проверить ProxyN",
   });
   if (!body) {
     return;
@@ -3779,10 +3782,7 @@ function renderProxyRuntimeTable() {
 
   if (note) {
     if (!state.statusSnapshotLoaded && !state.routerRuntimeLoading && !state.systemHealthLoading) {
-      note.className = "runtime-health-note";
-      note.textContent =
-        "Живой статус ProxyN не считывается автоматически. Нажми «Проверить», когда нужен снимок.";
-      note.hidden = false;
+      note.hidden = true;
     } else if (systemBusy) {
       note.className = "runtime-health-note is-bad";
       note.textContent =
@@ -3962,11 +3962,6 @@ function renderClientPolicies() {
     loaded: state.clientPoliciesLoaded,
     loading: state.clientPoliciesLoading,
     error: state.clientPoliciesError,
-    sectionTitle: "Полный маршрут устройств",
-    emptyTitle: "Список устройств ещё не загружен",
-    emptyHint: "Здесь появятся устройства и выбранные для них полные VPN-маршруты.",
-    loadingTitle: "Обновляем список устройств",
-    buttonLabel: "Загрузить устройства",
   });
   if (!body) {
     return;
@@ -3979,12 +3974,6 @@ function renderClientPolicies() {
   }
 
   if (!state.clientPoliciesLoaded && !state.clientPoliciesLoading) {
-    if (note) {
-      note.className = "runtime-health-note";
-      note.textContent =
-        "Список клиентов не считывается автоматически. Нажми «Загрузить», когда нужен снимок.";
-      note.hidden = false;
-    }
     body.innerHTML = `
       <tr>
         <td colspan="6" class="table-empty">Снимок клиентов ещё не загружен.</td>
@@ -4081,35 +4070,41 @@ function renderClientPolicies() {
       )
       .join("");
 
-  body.innerHTML = hosts
+  const rows = hosts
     .map((host) => {
       const assignmentPolicyId = assignmentMap.get(host.mac) || "";
+      const hasPendingTarget = Object.hasOwn(state.clientPolicyPendingTargets, host.mac);
+      const priority = hasPendingTarget ? 2 : assignmentPolicyId ? 1 : 0;
+      return { host, assignmentPolicyId, hasPendingTarget, priority };
+    })
+    .sort((left, right) => right.priority - left.priority);
+  const controlBusy = Boolean(
+    state.saveInFlight ||
+      state.dnsRefreshInFlight ||
+      state.vpnRefreshInFlight ||
+      state.clientPolicyBusyMac
+  );
+
+  body.innerHTML = rows
+    .map(({ host, assignmentPolicyId, hasPendingTarget, priority }) => {
       const policy = assignmentPolicyId ? policyMap.get(assignmentPolicyId) : null;
       const currentProxyId = policy && policy.proxyId ? policy.proxyId : "";
-      const hasPendingTarget = Object.prototype.hasOwnProperty.call(
-        state.clientPolicyPendingTargets || {},
-        host.mac
-      );
       const displayedProxyId = hasPendingTarget
         ? normalizeRouterProxyId(state.clientPolicyPendingTargets[host.mac])
         : currentProxyId;
       const isManaged = Boolean(policy && policy.managed && currentProxyId);
       const isForeign = Boolean(assignmentPolicyId && !isManaged);
       const rowKey = host.mac.replaceAll(":", "-");
-      const controlBusy = Boolean(
-        state.saveInFlight ||
-          state.dnsRefreshInFlight ||
-          state.vpnRefreshInFlight ||
-          state.clientPolicyBusyMac === host.mac
-      );
       const selectedNeedle = `value="${escapeHtml(displayedProxyId)}"`;
       const renderedOptions = displayedProxyId
         ? optionsHtml.replace(selectedNeedle, selectedNeedle + " selected")
         : optionsHtml.replace('value=""', 'value="" selected');
 
       let statusHtml = '<span class="status-pill status-neutral tiny-status">Обычный режим</span>';
-      let note = "DNS-таблица продолжает управлять этим клиентом как обычно.";
-      if (isManaged) {
+      let note = "";
+      if (hasPendingTarget) {
+        statusHtml = '<span class="status-pill status-pending tiny-status">Применяем маршрут</span>';
+      } else if (isManaged) {
         const optionTitle = String((proxyOptionMap.get(currentProxyId) && proxyOptionMap.get(currentProxyId).title) || "");
         const currentProxyName =
           profileNameByProxyId.get(currentProxyId) || optionTitle.replace(/\s+\([^)]*\)$/, "") || currentProxyId;
@@ -4124,7 +4119,7 @@ function renderClientPolicies() {
       }
 
       return `
-        <tr>
+        <tr class="${priority ? "client-policy-row-active" : "client-policy-row-default"}">
           <td class="client-device-cell">
             <div class="client-device-name">${escapeHtml(host.displayName)}</div>
             <div class="client-device-meta">${escapeHtml(host.interfaceDescription || "Keenetic hotspot")}</div>
@@ -4134,16 +4129,16 @@ function renderClientPolicies() {
           <td>${host.active ? '<span class="status-pill status-ok tiny-status">Онлайн</span>' : '<span class="status-pill status-neutral tiny-status">Неактивен</span>'}</td>
           <td>
             <div class="client-policy-controls">
-              <select id="clientPolicySelect-${escapeHtml(rowKey)}" data-client-policy-select="${escapeHtml(host.mac)}"${controlBusy ? " disabled" : ""}>
+              <select id="clientPolicySelect-${escapeHtml(rowKey)}" data-client-policy-select="${escapeHtml(host.mac)}" title="Выберите VPN для всего трафика устройства или верните обычные DNS-правила"${controlBusy ? " disabled" : ""}>
                 ${renderedOptions}
               </select>
-              <button type="button" class="secondary" data-client-policy-apply="${escapeHtml(host.mac)}"${controlBusy ? " disabled" : ""}>${state.clientPolicyBusyMac === host.mac ? "Применяем..." : "Применить"}</button>
+              <button type="button" class="secondary" data-client-policy-apply="${escapeHtml(host.mac)}" title="Применить выбранное правило для этого устройства сразу на роутере"${controlBusy ? " disabled" : ""}>${state.clientPolicyBusyMac === host.mac ? "Применяем..." : "Применить"}</button>
             </div>
           </td>
           <td>
             <div class="client-policy-status">
               ${statusHtml}
-              <div class="client-policy-note">${escapeHtml(note)}</div>
+              ${note ? `<div class="client-policy-note">${escapeHtml(note)}</div>` : ""}
             </div>
           </td>
         </tr>
@@ -4206,7 +4201,6 @@ function applyClientPolicy(mac) {
         state.clientPoliciesLoading = false;
         state.clientPoliciesError = "";
         state.clientPoliciesLoaded = true;
-        renderClientPolicies();
         showBanner(
           "ok",
           (data && data.message ? data.message : "Режим клиента обновлён.") +
@@ -4354,8 +4348,8 @@ function renderSelectedOverview() {
     </div>
     <div class="selected-overview-actions">
       <button type="button" class="secondary" data-selected-action="edit">Открыть редактор</button>
-      <button type="button" class="ghost" data-selected-action="ping"${state.saveInFlight ? " disabled" : ""}>Проверить профиль</button>
-      <button type="button" class="ghost" data-selected-action="egress"${state.saveInFlight ? " disabled" : ""}>Внешний IP</button>
+      <button type="button" class="ghost" data-selected-action="ping" title="Проверить TCP-подключение к серверу и выход через локальный SOCKS"${state.saveInFlight ? " disabled" : ""}>Проверить профиль</button>
+      <button type="button" class="ghost" data-selected-action="egress" title="Узнать внешний IP через SOCKS этого профиля"${state.saveInFlight ? " disabled" : ""}>Внешний IP</button>
     </div>
   `;
 }
@@ -4417,9 +4411,9 @@ function renderModalStatus(profile) {
       : '<span class="status-pill status-neutral">Не проверялся</span>';
   }
   if ($("selectedPingDetails")) {
-    $("selectedPingDetails").textContent = probe
-      ? probe.details
-      : "Проверка подтверждает выход через локальный SOCKS-порт профиля.";
+    const details = probe && probe.details ? probe.details : "";
+    $("selectedPingDetails").textContent = details;
+    $("selectedPingDetails").hidden = !details;
   }
 }
 
@@ -4467,12 +4461,9 @@ function updateProfileJsonArea(profile) {
 }
 
 function renderModalMeta(profile) {
+  $("restoreProfileNameBtn").hidden = state.modalPreviousName === null;
   if ($("modalTitle")) {
     $("modalTitle").textContent = state.modalMode === "create" ? "Новый профиль" : "Профиль: " + profile.name;
-  }
-  if ($("modalSubtitle")) {
-    $("modalSubtitle").textContent =
-      "Основные параметры подключения и локального socks на роутере собраны в одном окне.";
   }
   if ($("modalMetaChips")) {
     $("modalMetaChips").innerHTML = `
@@ -4562,6 +4553,7 @@ function openProfileModal(mode, profile) {
   state.modalMode = mode;
   state.modalProfileId = mode === "edit" ? draft.id : null;
   state.modalDraft = draft;
+  state.modalPreviousName = null;
   state.selectedId = draft.id;
   fillModalFields(draft);
   setModalOpen(true);
@@ -4586,6 +4578,7 @@ function closeProfileModal() {
   state.modalMode = null;
   state.modalProfileId = null;
   state.modalDraft = null;
+  state.modalPreviousName = null;
   resetEditorFields();
 }
 
@@ -4861,21 +4854,23 @@ function commitModalDraft() {
 }
 
 function applyLinkToModal(link) {
-  const source = String(link || "").trim();
-  if (!source) {
-    throw new Error("Сначала вставь ключ.");
-  }
-
   const current = getModalDraft() || createEmptyProfile("shadowsocks");
-  const parsed = parseLinkToProfile(source);
+  const parsed = parseLinkToProfile(link);
+  const hasLinkName = !isSystemLikeProfileName(parsed.name, parsed.id, parsed.protocol, parsed.engine);
   parsed.id = current.id || parsed.id;
   parsed.enabled = current.enabled;
   parsed.engine = current.engine;
   parsed.localPort = current.localPort || nextFreePort(state.modalMode === "edit" ? current.id : null);
   parsed.routerProxyId = current.routerProxyId || getEffectiveRouterProxyId(parsed, state.modalMode === "edit" ? current.id : null);
-  parsed.name = isSystemLikeProfileName(current.name, current.id, current.protocol, current.engine)
-    ? systemProfileName(parsed)
-    : (current.name || parsed.name);
+  if (hasLinkName) {
+    if (parsed.name !== current.name) {
+      state.modalPreviousName = current.name;
+    }
+  } else {
+    parsed.name = isSystemLikeProfileName(current.name, current.id, current.protocol, current.engine)
+      ? systemProfileName(parsed)
+      : current.name;
+  }
 
   state.modalDraft = parsed.protocol === "trojan" ? applyRouterFixes(parsed) : normalizeProfile(parsed);
   fillModalFields(state.modalDraft);
@@ -5847,6 +5842,34 @@ function wireEvents() {
     }
   });
 
+  $("restoreProfileNameBtn").addEventListener("click", function () {
+    if (state.modalPreviousName !== null) {
+      setFieldValue("profileNameInput", state.modalPreviousName);
+      state.modalPreviousName = null;
+      syncModalDraftFromFields();
+      $("profileNameInput").focus();
+    }
+  });
+
+  const backdrop = $("profileModal");
+  let pressedBackdrop = false;
+  backdrop.addEventListener("pointerdown", function (event) {
+    pressedBackdrop = event.target === backdrop && event.isPrimary && event.button === 0;
+  });
+  backdrop.addEventListener("pointerup", function (event) {
+    pressedBackdrop = pressedBackdrop && document.elementFromPoint(event.clientX, event.clientY) === backdrop;
+  });
+  backdrop.addEventListener("pointercancel", function () {
+    pressedBackdrop = false;
+  });
+  backdrop.addEventListener("click", function (event) {
+    const close = pressedBackdrop && event.target === backdrop;
+    pressedBackdrop = false;
+    if (close) {
+      closeProfileModal();
+    }
+  });
+
   $("duplicateBtn").addEventListener("click", function () {
     try {
       duplicateModalDraft();
@@ -6125,11 +6148,6 @@ function wireEvents() {
     const row = event.target.closest("[data-select-profile]");
     if (row && !event.target.closest("button")) {
       selectProfile(row.getAttribute("data-select-profile"));
-      return;
-    }
-
-    if (event.target === $("profileModal")) {
-      closeProfileModal();
     }
   });
 

@@ -342,7 +342,6 @@
       $("syncDirectionLabel").textContent = data.directionLabel || "Обычное действие: GitHub → роутер";
     }
     if ($("syncDirectionIcon")) $("syncDirectionIcon").textContent = data.directionIcon || "←";
-    if ($("syncDnsBtn")) $("syncDnsBtn").textContent = data.buttonText || "Скачать из GitHub на роутер";
 
     state.syncBlocked = Boolean(data.blocked);
     if ($("syncDnsBtn")) $("syncDnsBtn").disabled = state.loading || state.syncBlocked;
@@ -469,7 +468,6 @@
         headline: "Подключите GitHub",
         explanation: "Укажите токен в настройках ниже. Обычное обновление будет скачивать список на роутер.",
         directionLabel: "GitHub не подключён",
-        buttonText: "Сначала подключите GitHub",
         blocked: true,
       });
       return;
@@ -485,7 +483,6 @@
         explanation: "Проверьте репозиторий, токен или интернет-соединение и попробуйте скачать ещё раз.",
         directionLabel: "GitHub → роутер",
         directionIcon: "←",
-        buttonText: "Попробовать скачать ещё раз",
         blocked: false,
       });
       return;
@@ -502,7 +499,6 @@
           "Скачивание проигнорирует локальную дату и заменит DNS-списки содержимым GitHub. Перед заменой будет подтверждение.",
         directionLabel: "Принудительно: GitHub → роутер",
         directionIcon: "←",
-        buttonText: "Скачать GitHub, отбросив локальные изменения",
         blocked: false,
         attentionCard: "localVersionCard",
       });
@@ -519,7 +515,6 @@
         explanation: "На роутере ещё нет подтверждённой даты. Список GitHub можно применить независимо от неё.",
         directionLabel: "GitHub → роутер",
         directionIcon: "←",
-        buttonText: "Скачать из GitHub на роутер",
         blocked: false,
         newerCard: "remoteVersionCard",
       });
@@ -538,7 +533,6 @@
           "Обычная кнопка не перезапишет GitHub. Если локальная дата ошибочна, можно намеренно скачать GitHub на роутер.",
         directionLabel: "Безопасное действие: GitHub → роутер",
         directionIcon: "←",
-        buttonText: "Всё равно скачать из GitHub",
         blocked: false,
         newerCard: "localVersionCard",
       });
@@ -555,7 +549,6 @@
         explanation: "Скачайте её — роутер построит DNS-группы автоматически, не меняя назначенные маршруты.",
         directionLabel: "GitHub → роутер",
         directionIcon: "←",
-        buttonText: "Скачать обновление из GitHub",
         blocked: false,
         newerCard: "remoteVersionCard",
       });
@@ -571,7 +564,6 @@
       explanation: "Если содержимое уже совпадает, ничего не изменится. Если различается — версия GitHub станет основной.",
       directionLabel: "GitHub → роутер",
       directionIcon: "←",
-      buttonText: "Проверить и скачать из GitHub",
       blocked: false,
     });
   }
@@ -601,7 +593,6 @@
         explanation: "Соединение с роутером или GitHub прервалось. Нажмите «Проверить ещё раз».",
         directionLabel: "GitHub → роутер",
         directionIcon: "←",
-        buttonText: "Попробовать скачать ещё раз",
         blocked: false,
       });
       if (!opts.silent) showBanner("error", "Не удалось прочитать версии DNS: " + error.message);
@@ -779,7 +770,6 @@
         <div class="dns-group-editor-empty">
           <span aria-hidden="true">←</span>
           <strong>Выберите список</strong>
-          <small>Здесь появятся его название и адреса сайтов.</small>
         </div>
       `;
       return;
@@ -788,10 +778,7 @@
     const disabled = state.loading ? " disabled" : "";
     container.innerHTML = `
       <div class="dns-group-editor-head">
-        <div>
-          <h3>${escapeHtml(group.description || group.groupId)}</h3>
-          <div class="client-device-meta">Редактирование выбранного списка</div>
-        </div>
+        <h3>${escapeHtml(group.description || group.groupId)}</h3>
         <span class="dns-group-id-pill">${escapeHtml(group.groupId)}</span>
       </div>
       <div class="field-stack dns-group-name-field">
@@ -805,9 +792,9 @@
         )}</textarea>
       </div>
       <div class="dns-group-editor-actions">
-        <button id="saveGroupTextBtn" class="secondary" type="button"${disabled}>Оставить черновиком</button>
-        <button id="saveGroupApplyBtn" class="warning" type="button"${disabled}>Сохранить на роутер</button>
-        <button id="discardGroupBtn" class="ghost" type="button"${disabled}>Отменить</button>
+        <button id="saveGroupTextBtn" class="secondary" type="button" title="Обновить группу в текстовом черновике этой страницы"${disabled}>Оставить черновиком</button>
+        <button id="saveGroupApplyBtn" class="warning" type="button" title="Применить название и адреса только этой группы на роутере"${disabled}>Сохранить на роутер</button>
+        <button id="discardGroupBtn" class="ghost" type="button" title="Вернуть значения группы из текущего черновика"${disabled}>Отменить</button>
       </div>
     `;
   }

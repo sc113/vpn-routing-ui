@@ -38,9 +38,7 @@
     <main class="page dns-page">
       <section class="hero dns-page-hero">
         <div class="dns-page-hero-copy">
-          <span class="dns-eyebrow">Списки сайтов для маршрутизации</span>
           <h1>DNS-списки</h1>
-          <p>Добавляйте сайты в группы и храните их резервную копию в GitHub.</p>
         </div>
         <div class="dns-safety-note">
           <span class="dns-safety-icon" aria-hidden="true">✓</span>
@@ -61,28 +59,22 @@
 
       <section id="dnsSyncHub" class="panel dns-sync-hub" data-sync-state="loading" aria-labelledby="syncHeadline">
         <div class="dns-sync-summary">
-          <div id="syncStateIcon" class="dns-sync-state-icon" aria-hidden="true">↻</div>
+          <div id="syncStateIcon" class="dns-sync-state-icon" aria-hidden="true">…</div>
           <div class="dns-sync-summary-copy" aria-live="polite">
             <span id="syncBadge" class="dns-status-badge loading">Проверяем</span>
             <h2 id="syncHeadline">Сравниваем списки…</h2>
-            <p id="syncExplanation">Смотрим даты на роутере и в GitHub. Обычное обновление всегда скачивает GitHub на роутер.</p>
+            <p id="syncExplanation">Обновление скачивает список из GitHub на роутер.</p>
             <span id="syncLastRun" class="dns-last-sync">Последнее действие: проверяем…</span>
           </div>
           <div class="dns-sync-main-actions">
-            <button id="syncDnsBtn" class="dns-primary-action" type="button" disabled>Скачать из GitHub на роутер</button>
-            <button id="refreshSyncStatusBtn" class="dns-refresh-action" type="button">
-              <span aria-hidden="true">↻</span>
-              Проверить ещё раз
-            </button>
+            <button id="syncDnsBtn" class="refresh-button" type="button" aria-label="Обновить DNS-списки из GitHub на роутере" title="Скачать списки из GitHub и применить их на роутере" disabled>Обновить</button>
+            <button id="refreshSyncStatusBtn" class="ghost" type="button" title="Перечитать даты версий и состояние подключения к GitHub">Проверить ещё раз</button>
           </div>
         </div>
 
         <div class="dns-compare-block" aria-label="Сравнение версий">
           <div class="dns-compare-heading">
-            <div>
-              <h3>Даты версий</h3>
-              <p>Они помогают ориентироваться, но не отправляют данные в GitHub автоматически.</p>
-            </div>
+            <h3>Даты версий</h3>
             <span id="syncDirectionLabel" class="dns-direction-label">Обычное действие: GitHub → роутер</span>
           </div>
 
@@ -128,7 +120,6 @@
 
           <div class="dns-settings-body">
             <div class="dns-settings-intro">
-              <strong>Заполняется один раз</strong>
               <span>Токен хранится только на роутере. Для него достаточно права <b>Contents: Read and write</b> на выбранный репозиторий.</span>
             </div>
 
@@ -144,7 +135,7 @@
               </div>
               <div class="field-stack">
                 <label for="syncPathInput">Имя или путь файла</label>
-                <input id="syncPathInput" type="text" autocomplete="off" placeholder="vpn-routing-ui-dns-groups.txt">
+                <input id="syncPathInput" type="text" autocomplete="off" placeholder="vpn-routing-ui-dns-groups.txt" title="Путь к файлу от корня выбранного репозитория">
               </div>
               <div class="field-stack">
                 <label for="syncKeyInput">Логин GitHub</label>
@@ -158,7 +149,7 @@
             </div>
 
             <div class="dns-sync-settings-actions">
-              <button id="saveSyncSettingsBtn" class="dns-settings-save" type="button">Сохранить и проверить</button>
+              <button id="saveSyncSettingsBtn" class="info dns-settings-save" type="button" title="Сохранить параметры подключения на роутере и проверить доступ к файлу">Сохранить и проверить</button>
               <span>Пустое поле токена не удаляет уже сохранённый токен.</span>
             </div>
           </div>
@@ -187,10 +178,10 @@
             </div>
             <p id="publishLocalState" class="dns-publish-state">Проверяем локальную версию…</p>
             <div class="dns-publish-actions">
-              <button id="captureVersionBtn" class="dns-capture-action" type="button" hidden>
+              <button id="captureVersionBtn" class="warning dns-capture-action" type="button" title="Зафиксировать текущую версию списков роутера перед отправкой в GitHub" hidden>
                 Присвоить текущую дату
               </button>
-              <button id="uploadDnsBtn" class="dns-upload-action" type="button" disabled>
+              <button id="uploadDnsBtn" class="danger" type="button" title="Заменить файл в GitHub списками с роутера после подтверждения" disabled>
                 Отправить текущий список в GitHub
               </button>
             </div>
@@ -201,13 +192,11 @@
       <section class="panel dns-lists-panel" id="dns-groups-editor">
         <div class="dns-section-head">
           <div>
-            <span class="dns-section-kicker">Основная работа</span>
             <h2>Списки сайтов</h2>
-            <p>Выберите группу слева. Справа можно изменить название и адреса сайтов.</p>
           </div>
           <div class="dns-section-actions">
-            <a class="button-like secondary" href="/profiles.html#dns-routes">Назначить VPN-маршруты</a>
-            <button id="addGroupBtn" class="dns-add-group" type="button">+ Создать список</button>
+            <a class="button-like secondary" href="/profiles.html#dns-routes" title="Открыть таблицу назначений групп на VPN-профили или прямое подключение">Назначить VPN-маршруты</a>
+            <button id="addGroupBtn" class="info" type="button" title="Создать черновик DNS-группы. Чтобы применить его, сохраните группу на роутер.">+ Создать список</button>
           </div>
         </div>
 
@@ -220,7 +209,7 @@
                 <tr>
                   <th class="col-num">#</th>
                   <th>Название</th>
-                  <th>Адреса</th>
+                  <th title="Количество доменов, IP-адресов и подсетей в списке">Адреса</th>
                 </tr>
               </thead>
               <tbody id="groupsTableBody"></tbody>
@@ -231,7 +220,6 @@
             <div class="dns-group-editor-empty">
               <span aria-hidden="true">←</span>
               <strong>Выберите список</strong>
-              <small>Здесь появятся его название и адреса сайтов.</small>
             </div>
           </aside>
         </div>
@@ -251,22 +239,21 @@
           <div class="dns-advanced-intro">
             <div>
               <h2>Текстовый файл DNS-списков</h2>
-              <p>Нужен только для ручного переноса или восстановления. Обычные изменения удобнее делать в редакторе выше.</p>
             </div>
             <div class="dns-advanced-links">
               <a class="button-like ghost" href="http://192.168.1.1/staticRoutes/dns" target="_blank" rel="noreferrer noopener">
                 Открыть DNS-группы Keenetic
               </a>
-              <button id="reloadBtn" class="secondary" type="button">Перечитать с роутера</button>
+              <button id="reloadBtn" class="secondary" type="button" title="Заменить текущий черновик списками с роутера">Перечитать с роутера</button>
             </div>
           </div>
 
           <div class="dns-transfer-actions">
-            <button id="openFileBtn" class="secondary" type="button">Открыть файл</button>
-            <button id="downloadTextBtn" class="secondary" type="button">Скачать копию</button>
-            <button id="copyTextBtn" class="ghost" type="button">Копировать текст</button>
-            <button id="validateTextBtn" class="info" type="button">Проверить файл</button>
-            <button id="applyTextBtn" class="warning" type="button">Загрузить на роутер</button>
+            <button id="openFileBtn" class="secondary" type="button" title="Открыть текстовый файл как черновик DNS-списков">Открыть файл</button>
+            <button id="downloadTextBtn" class="secondary" type="button" title="Скачать текущий текст списков вместе с правками черновика">Скачать копию</button>
+            <button id="copyTextBtn" class="ghost" type="button" title="Скопировать текущий текст DNS-списков в буфер обмена">Копировать текст</button>
+            <button id="validateTextBtn" class="info" type="button" title="Проверить формат и состав файла перед загрузкой">Проверить файл</button>
+            <button id="applyTextBtn" class="warning" type="button" title="Добавить или обновить группы на роутере из текущего текста после подтверждения">Загрузить на роутер</button>
           </div>
 
           <input id="importFileInput" class="visually-hidden" type="file" accept=".txt,text/plain">

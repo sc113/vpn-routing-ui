@@ -74,7 +74,7 @@
     return `
       <div class="system-health-widget-state${kindClass}">
         <strong>${escapeHtml(title)}</strong>
-        <span>${escapeHtml(hint)}</span>
+        ${hint ? `<span>${escapeHtml(hint)}</span>` : ""}
       </div>
     `;
   }
@@ -96,22 +96,13 @@
     button.disabled = Boolean(state.loading);
     button.classList.toggle("is-loading", Boolean(state.loading));
     button.setAttribute("aria-busy", state.loading ? "true" : "false");
-    button.title = state.loading ? "Считываем здоровье роутера" : "Обновить здоровье роутера";
+    button.title = state.loading ? "Считываем нагрузку роутера" : "Проверить загрузку процессора, памяти и VPN-процессов";
     if (buttonText) {
-      buttonText.textContent = state.loading
-        ? "Проверяем..."
-        : state.error
-          ? "Повторить"
-          : state.health
-            ? "Обновить"
-            : "Проверить";
+      buttonText.textContent = state.loading ? "Проверяем..." : "Обновить";
     }
 
     if (state.loading) {
-      body.innerHTML = statePanel(
-        "Считываем нагрузку роутера...",
-        "Обычно это занимает несколько секунд."
-      );
+      body.innerHTML = statePanel("Считываем нагрузку роутера...");
       return;
     }
 
@@ -121,10 +112,7 @@
     }
 
     if (!state.health) {
-      body.innerHTML = statePanel(
-        "Нагрузка ещё не проверена",
-        "Проверка запускается только по кнопке."
-      );
+      body.innerHTML = statePanel("Нагрузка ещё не проверена");
       return;
     }
 
@@ -181,12 +169,13 @@
     widget.innerHTML = `
       <div class="system-health-widget-head">
         <div class="system-health-widget-title">
-          <span aria-hidden="true">🩺</span>
+          <svg class="system-health-widget-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M3 12h4l3-6 4 12 3-6h4"/>
+          </svg>
           <span>Роутер</span>
         </div>
-        <button class="refresh-button refresh-button-labeled system-health-widget-refresh" type="button" data-health-refresh aria-label="Проверить здоровье роутера" title="Проверить здоровье роутера" aria-busy="false">
-          <span class="refresh-button-icon" aria-hidden="true">↻</span>
-          <span data-health-refresh-text>Проверить</span>
+        <button class="refresh-button" type="button" data-health-refresh aria-label="Обновить данные о нагрузке роутера" title="Обновить данные о нагрузке роутера" aria-busy="false">
+          <span data-health-refresh-text>Обновить</span>
         </button>
       </div>
       <div class="system-health-widget-grid" data-health-body></div>
