@@ -54,8 +54,6 @@ const state = {
   pingAllProgress: null,
   saveInFlight: false,
   saveProgress: null,
-  dnsRefreshInFlight: false,
-  vpnRefreshInFlight: false,
   proxyRuntimeBusyId: "",
   proxyRuntimeBusyAction: "",
   clientPoliciesLoading: false,
@@ -370,41 +368,8 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-function compactVersion(value) {
-  const text = String(value || "").trim();
-  if (!text) {
-    return "Неизвестно";
-  }
-  const match = text.match(/\b\d+\.\d+\.\d+(?:[-.][0-9A-Za-z]+)*/);
-  return match ? match[0] : text.split(/\r?\n/)[0];
-}
-
-function compactPath(value) {
-  const text = String(value || "").trim();
-  if (!text) {
-    return "Неизвестно";
-  }
-  const normalized = text.replaceAll("\\", "/");
-  const parts = normalized.split("/").filter(Boolean);
-  return parts.length ? parts[parts.length - 1] : normalized;
-}
-
 function inboundListenAddress(inbound) {
   return String((inbound || {}).listen || "").trim();
-}
-
-function githubReleaseUrl(engine, versionText) {
-  return engine === "singbox"
-    ? "https://github.com/SagerNet/sing-box/releases"
-    : "https://github.com/XTLS/Xray-core/releases";
-}
-
-function renderVersionValue(engine, versionText) {
-  const version = compactVersion(versionText);
-  if (!version) {
-    return `<a class="chip-link mono" href="${githubReleaseUrl(engine, versionText)}" target="_blank" rel="noreferrer noopener">релизы &#8599;</a>`;
-  }
-  return `<a class="chip-link mono" href="${githubReleaseUrl(engine, versionText)}" target="_blank" rel="noreferrer noopener">${escapeHtml(version)} &#8599;</a>`;
 }
 
 function showBanner(kind, text) {
@@ -593,8 +558,6 @@ function renderDirtyNotice() {
 function updateBusyControls() {
   const busy = Boolean(
     state.saveInFlight ||
-      state.dnsRefreshInFlight ||
-      state.vpnRefreshInFlight ||
       state.proxyRuntimeBusyId ||
       state.clientPolicyBusyMac
   );
@@ -696,7 +659,6 @@ function setSaveInFlight(value) {
     state.saveProgress = null;
   }
   renderDirtyNotice();
-  renderSummary();
   renderProfilesTable();
   renderPingProgress();
   renderDnsBulkControls();
@@ -706,47 +668,9 @@ function setSaveInFlight(value) {
   updateBusyControls();
 }
 
-function runDnsRefresh() {
-  if (
-    state.dnsRefreshInFlight ||
-    state.vpnRefreshInFlight ||
-    state.proxyRuntimeBusyId ||
-    state.saveInFlight ||
-    state.clientPolicyBusyMac
-  ) {
-    return Promise.reject(
-      new Error("Подожди завершения текущей операции, потом запусти DNS reset ещё раз.")
-    );
-  }
-  state.dnsRefreshInFlight = true;
-  updateBusyControls();
-  renderSummary();
-  renderClientPolicies();
-  showBanner("warn", "Пересобираем live DNS-маршруты и перезапускаем dns-proxy intercept...");
-
-  return fetchJson("/cgi-bin/dns-route-refresh.cgi", {
-    method: "POST",
-    cache: "no-store",
-  })
-    .then((data) =>
-      init(
-        (data && data.message ? data.message : "DNS-маршруты пересобраны.") +
-          (data && data.backupPath ? " Бэкап: " + data.backupPath : "")
-      )
-    )
-    .finally(() => {
-      state.dnsRefreshInFlight = false;
-      updateBusyControls();
-      renderSummary();
-      renderClientPolicies();
-    });
-}
-
 function runDnsRoutesReload() {
   if (
     state.dnsRoutesLoading ||
-    state.dnsRefreshInFlight ||
-    state.vpnRefreshInFlight ||
     state.proxyRuntimeBusyId ||
     state.saveInFlight ||
     state.clientPolicyBusyMac
@@ -785,72 +709,8 @@ function runDnsRoutesReload() {
     });
 }
 
-function runVpnRefresh() {
-  if (
-    state.vpnRefreshInFlight ||
-    state.dnsRefreshInFlight ||
-    state.proxyRuntimeBusyId ||
-    state.saveInFlight ||
-    state.clientPolicyBusyMac
-  ) {
-    return Promise.reject(
-      new Error("Подожди завершения текущей операции, потом запусти VPN reset ещё раз.")
-    );
-  }
-  if (isProfilesDirty()) {
-    return Promise.reject(
-      new Error("Сначала отправь локальные изменения профилей на роутер, а потом запускай VPN reset.")
-    );
-  }
-
-  state.vpnRefreshInFlight = true;
-  updateBusyControls();
-  renderSummary();
-  renderClientPolicies();
-  showBanner(
-    "warn",
-    "Перезапускаем только реально используемые движки и проверяем слой маршрутизации..."
-  );
-
-  const params = new URLSearchParams();
-  if (state.status && state.status.xrayInstalled && hasEnabledProfileForEngine("xray")) {
-    params.set("xray", "1");
-  }
-  if (
-    state.status &&
-    state.status.singboxInstalled &&
-    state.status.singboxService &&
-    hasEnabledProfileForEngine("sing-box")
-  ) {
-    params.set("singbox", "1");
-  }
-
-  return Promise.resolve()
-    .then(() =>
-      fetchJson(`/cgi-bin/vpn-route-refresh.cgi?${params.toString()}`, {
-        method: "POST",
-        cache: "no-store",
-      })
-    )
-    .then((data) =>
-      init(
-        (data && data.message ? data.message : "VPN-слой перезапущен.") +
-          (data && data.runtime ? " " + data.runtime : "") +
-          (data && data.backupPath ? " Бэкап: " + data.backupPath : "")
-      )
-    )
-    .finally(() => {
-      state.vpnRefreshInFlight = false;
-      updateBusyControls();
-      renderSummary();
-      renderClientPolicies();
-    });
-}
-
 function runStatusRefresh() {
   if (
-    state.vpnRefreshInFlight ||
-    state.dnsRefreshInFlight ||
     state.proxyRuntimeBusyId ||
     state.saveInFlight ||
     state.clientPolicyBusyMac ||
@@ -866,7 +726,6 @@ function runStatusRefresh() {
   state.routerRuntimeLoading = true;
   state.routerRuntimeError = "";
   updateBusyControls();
-  renderSummary();
   renderProxyRuntimeTable();
   renderClientPolicies();
   showBanner("warn", "Считываем живой статус роутера и ProxyN только по явному запросу...");
@@ -876,7 +735,6 @@ function runStatusRefresh() {
       state.systemHealth = normalizeSystemHealth(healthData);
       state.systemHealthLoading = false;
       state.systemHealthError = "";
-      renderSummary();
       renderProxyRuntimeTable();
       return loadRouterRuntime();
     })
@@ -886,7 +744,6 @@ function runStatusRefresh() {
       state.routerRuntimeLoading = false;
       state.routerRuntimeError = "";
       state.statusSnapshotLoaded = true;
-      renderSummary();
       renderDnsRoutesTable();
       renderProxyRuntimeTable();
       showBanner("ok", "Живой статус роутера перечитан.");
@@ -900,21 +757,17 @@ function runStatusRefresh() {
       if (!state.routerRuntimeError) {
         state.routerRuntimeError = error.message;
       }
-      renderSummary();
       renderProxyRuntimeTable();
       throw error;
     })
     .finally(() => {
       updateBusyControls();
-      renderSummary();
       renderProxyRuntimeTable();
     });
 }
 
 function runProxyNamesSync() {
   if (
-    state.vpnRefreshInFlight ||
-    state.dnsRefreshInFlight ||
     state.proxyRuntimeBusyId ||
     state.saveInFlight ||
     state.clientPolicyBusyMac ||
@@ -981,8 +834,6 @@ function runProxyNamesSync() {
 
 function runClientPoliciesRefresh() {
   if (
-    state.vpnRefreshInFlight ||
-    state.dnsRefreshInFlight ||
     state.proxyRuntimeBusyId ||
     state.saveInFlight ||
     state.clientPolicyBusyMac ||
@@ -1699,19 +1550,9 @@ function normalizeClientAssignments(payload) {
     .filter(Boolean);
 }
 
-function runEngineAction(engine, action) {
-  const endpoint =
-    engine === "singbox" ? "/cgi-bin/singbox-service.cgi" : "/cgi-bin/xray-service.cgi";
-  return fetchJson(endpoint + "?action=" + encodeURIComponent(action), {
-    method: "POST",
-    cache: "no-store",
-  });
-}
-
 function hasExpectedLayout() {
   return Boolean(
-    $("summaryGrid") &&
-      $("profilesTableBody") &&
+    $("profilesTableBody") &&
       $("dnsRoutesTableBody") &&
       $("selectedOverview") &&
       $("profileModal") &&
@@ -1882,35 +1723,6 @@ function createEmptyProfile(protocol, engine) {
 
 function getProfiles() {
   return normalizeProfilesDoc(state.profilesDoc).profiles;
-}
-
-function hasEnabledProfileForEngine(engineId) {
-  const usedProxyIds = new Set();
-  for (const route of getDnsRoutes()) {
-    const proxyId = normalizeRouterProxyId(route.proxyId);
-    if (proxyId) {
-      usedProxyIds.add(proxyId);
-    }
-  }
-  const policyMap = getClientPolicyMap();
-  for (const assignment of getClientAssignments()) {
-    const policy = policyMap.get(assignment.policyId);
-    const proxyId = normalizeRouterProxyId(policy && policy.proxyId);
-    if (proxyId) {
-      usedProxyIds.add(proxyId);
-    }
-  }
-
-  return getProfiles().some((profile) => {
-    if (!(profile && profile.enabled && Number(profile.localPort || 0) > 0 && profile.engine === engineId)) {
-      return false;
-    }
-    const proxyId = normalizeRouterProxyId(profile.routerProxyId);
-    if (!usedProxyIds.size) {
-      return true;
-    }
-    return Boolean(proxyId && usedProxyIds.has(proxyId));
-  });
 }
 
 function getDnsRoutes() {
@@ -3435,112 +3247,6 @@ function probeSummary(profile) {
   return `<span class="${textClass}">${escapeHtml(probe.text)}</span>`;
 }
 
-function renderSummary() {
-  const grid = $("summaryGrid");
-  if (!grid) {
-    return;
-  }
-
-  const status = state.status || {};
-  const profiles = getProfiles();
-  const activeCount = profiles.filter((profile) => profile.enabled).length;
-  const actionBusy = Boolean(
-    state.saveInFlight ||
-      state.dnsRefreshInFlight ||
-      state.vpnRefreshInFlight ||
-      state.clientPolicyBusyMac
-  );
-  const engines = [
-    {
-      id: "xray",
-      name: "Xray",
-      installed: status.xrayInstalled,
-      running: status.xrayRunning,
-      version: status.xrayVersion,
-      configPath: status.xrayConfigPath || "/opt/etc/xray/config.json",
-      canControl: status.xrayInstalled,
-      icon: "M4 5h16v6H4zM4 13h16v6H4zM8 8h.01M8 16h.01",
-    },
-    {
-      id: "singbox",
-      name: "sing-box",
-      installed: status.singboxInstalled,
-      running: status.singboxRunning,
-      version: status.singboxVersion,
-      configPath: status.singboxConfigPath || "/opt/etc/sing-box/config.json",
-      canControl: status.singboxInstalled && status.singboxService,
-      icon: "M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM4 7.5l8 4.5 8-4.5M12 12v9",
-    },
-  ];
-  const engineRows = engines.map((engine) => {
-    const disabled = engine.canControl && !actionBusy ? "" : " disabled";
-    const stateLabel = engine.running ? "Запущен" : engine.installed ? "Остановлен" : "Не установлен";
-    return `
-      <section class="engine-row summary-row summary-row-${engine.id}">
-        <div class="summary-row-main">
-          <div class="summary-row-heading">
-            <svg class="summary-row-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-              <path d="${engine.icon}"/>
-            </svg>
-            <h3 class="engine-row-title">${engine.name}</h3>
-            <span class="status-pill ${engine.running ? "status-ok" : "status-neutral"} tiny-status">${stateLabel}</span>
-          </div>
-          <dl class="summary-row-meta">
-            <div>
-              <dt>Версия</dt>
-              <dd>${renderVersionValue(engine.id, engine.version)}</dd>
-            </div>
-            <div title="${escapeHtml(engine.configPath)}">
-              <dt>Конфиг</dt>
-              <dd class="mono">${escapeHtml(compactPath(engine.configPath))}</dd>
-            </div>
-          </dl>
-        </div>
-        <div class="engine-row-actions summary-row-actions">
-          <button type="button" class="secondary" data-engine="${engine.id}" data-engine-action="start" title="Запустить движок с сохранённой конфигурацией"${disabled}>Старт</button>
-          <button type="button" class="danger" data-engine="${engine.id}" data-engine-action="stop" title="Остановить движок и прервать подключения через него"${disabled}>Стоп</button>
-          <button type="button" class="warning" data-engine="${engine.id}" data-engine-action="restart" title="Перезапустить движок с сохранённой конфигурацией"${disabled}>Рестарт</button>
-        </div>
-      </section>
-    `;
-  });
-  const resetDisabled = actionBusy ? " disabled" : "";
-  const dnsRefreshLabel = state.dnsRefreshInFlight ? "DNS reset..." : "DNS reset";
-  const vpnRefreshLabel = state.vpnRefreshInFlight ? "VPN reset..." : "VPN reset";
-  const dnsCount = state.dnsRoutesLoading || state.dnsRoutesError ? "—" : getDnsRoutes().length;
-
-  grid.innerHTML = engineRows.join("") + `
-    <section class="engine-row summary-row summary-row-profiles">
-      <div class="summary-row-main">
-        <div class="summary-row-heading">
-          <svg class="summary-row-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-            <path d="m3 7 9-4 9 4-9 4-9-4zm0 5 9 4 9-4M3 17l9 4 9-4"/>
-          </svg>
-          <h3 class="engine-row-title">Профили</h3>
-        </div>
-        <dl class="summary-row-meta">
-          <div>
-            <dt>Активных</dt>
-            <dd>${activeCount} из ${profiles.length}</dd>
-          </div>
-          <div title="Следующий порт, свободный среди профилей">
-            <dt>След. SOCKS</dt>
-            <dd class="mono">:${nextFreePort()}</dd>
-          </div>
-          <div>
-            <dt>DNS-маршрутов</dt>
-            <dd>${dnsCount}</dd>
-          </div>
-        </dl>
-      </div>
-      <div class="engine-row-actions summary-row-actions">
-        <button type="button" class="info" data-router-action="dns-refresh"${resetDisabled} title="Пересобрать действующие DNS-маршруты и кэш адресов групп.">${dnsRefreshLabel}</button>
-        <button type="button" class="warning" data-router-action="vpn-refresh"${resetDisabled} title="Перезапустить используемые VPN-движки и обновить подключения ProxyN.">${vpnRefreshLabel}</button>
-      </div>
-    </section>
-  `;
-}
-
 function renderProfilesTable() {
   if (!$("profilesTableBody")) {
     return;
@@ -3861,8 +3567,6 @@ function renderProxyRuntimeTable() {
         const busy = Boolean(
           state.proxyRuntimeBusyId ||
             state.saveInFlight ||
-            state.dnsRefreshInFlight ||
-            state.vpnRefreshInFlight ||
             state.clientPolicyBusyMac ||
             !canRestart
         );
@@ -4073,8 +3777,6 @@ function renderClientPolicies() {
     .sort((left, right) => right.priority - left.priority);
   const controlBusy = Boolean(
     state.saveInFlight ||
-      state.dnsRefreshInFlight ||
-      state.vpnRefreshInFlight ||
       state.clientPolicyBusyMac
   );
 
@@ -4217,8 +3919,6 @@ function runProxyRuntimeAction(proxyId, action) {
   if (
     state.proxyRuntimeBusyId ||
     state.saveInFlight ||
-    state.dnsRefreshInFlight ||
-    state.vpnRefreshInFlight ||
     state.clientPolicyBusyMac
   ) {
     return Promise.reject(new Error("Сначала дождись завершения текущей операции."));
@@ -4227,7 +3927,6 @@ function runProxyRuntimeAction(proxyId, action) {
   state.proxyRuntimeBusyId = normalized;
   state.proxyRuntimeBusyAction = action || "restart";
   updateBusyControls();
-  renderSummary();
   renderDnsRoutesTable();
   renderClientPolicies();
   renderProxyRuntimeTable();
@@ -4255,7 +3954,6 @@ function runProxyRuntimeAction(proxyId, action) {
         state.routerRuntimeLoading = false;
         state.routerRuntimeError = "";
         state.statusSnapshotLoaded = true;
-        renderSummary();
         renderDnsRoutesTable();
         renderProxyRuntimeTable();
         showBanner("ok", (data && data.message) || (normalized + " переподнят."));
@@ -4265,7 +3963,6 @@ function runProxyRuntimeAction(proxyId, action) {
       state.proxyRuntimeBusyId = "";
       state.proxyRuntimeBusyAction = "";
       updateBusyControls();
-      renderSummary();
       renderDnsRoutesTable();
       renderClientPolicies();
       renderProxyRuntimeTable();
@@ -4374,7 +4071,6 @@ function renderTechnicalPreview(force) {
 
 function renderAll() {
   renderDirtyNotice();
-  renderSummary();
   renderProfilesTable();
   renderDnsBulkControls();
   renderDnsRoutesTable();
@@ -5598,9 +5294,9 @@ function applyRouterSyncMappings(profiles, syncResult) {
 }
 
 function saveEverything() {
-  if (state.saveInFlight || state.dnsRefreshInFlight) {
+  if (state.saveInFlight) {
     return Promise.reject(
-      new Error("Сейчас уже идёт сохранение или DNS reset. Дождись завершения текущей операции.")
+      new Error("Сейчас уже идёт сохранение. Дождись завершения текущей операции.")
     );
   }
 
@@ -5995,33 +5691,14 @@ function wireEvents() {
   document.addEventListener("click", function (event) {
     if (
       state.saveInFlight ||
-      state.dnsRefreshInFlight ||
-      state.vpnRefreshInFlight ||
       state.proxyRuntimeBusyId ||
       state.clientPolicyBusyMac
     ) {
       return;
     }
-    const engineActionBtn = event.target.closest("[data-engine-action]");
-    if (engineActionBtn) {
-      const engine = engineActionBtn.getAttribute("data-engine");
-      const action = engineActionBtn.getAttribute("data-engine-action");
-      runEngineAction(engine, action)
-        .then((data) => init(data.message || "Команда для движка выполнена."))
-        .catch((error) => showBanner("error", error.message));
-      return;
-    }
-
     const routerActionBtn = event.target.closest("[data-router-action]");
     if (routerActionBtn) {
-      if (routerActionBtn.getAttribute("data-router-action") === "dns-refresh") {
-        runDnsRefresh().catch((error) => {
-          state.dnsRefreshInFlight = false;
-          updateBusyControls();
-          renderSummary();
-          showBanner("error", error.message);
-        });
-      } else if (routerActionBtn.getAttribute("data-router-action") === "dns-routes-reload") {
+      if (routerActionBtn.getAttribute("data-router-action") === "dns-routes-reload") {
         runDnsRoutesReload().catch((error) => {
           showBanner("error", error.message);
         });
@@ -6032,13 +5709,6 @@ function wireEvents() {
       } else if (routerActionBtn.getAttribute("data-router-action") === "proxy-names-sync") {
         runProxyNamesSync().catch((error) => {
           setSaveInFlight(false);
-          showBanner("error", error.message);
-        });
-      } else if (routerActionBtn.getAttribute("data-router-action") === "vpn-refresh") {
-        runVpnRefresh().catch((error) => {
-          state.vpnRefreshInFlight = false;
-          updateBusyControls();
-          renderSummary();
           showBanner("error", error.message);
         });
       } else if (routerActionBtn.getAttribute("data-router-action") === "clients-refresh") {
@@ -6087,7 +5757,6 @@ function wireEvents() {
         state.proxyRuntimeBusyId = "";
         state.proxyRuntimeBusyAction = "";
         updateBusyControls();
-        renderSummary();
         renderDnsRoutesTable();
         renderProxyRuntimeTable();
         showBanner("error", error.message);

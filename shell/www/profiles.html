@@ -79,20 +79,6 @@
       </div>
     </div>
 
-    <section class="panel" id="system-panel">
-      <div class="toolbar">
-        <div>
-          <h2>Система</h2>
-        </div>
-        <div class="toolbar-right">
-          <button id="reloadBtn" class="refresh-button" type="button" aria-label="Обновить данные роутера" title="Перечитать профили и маршруты с роутера. Локальные изменения будут сброшены." aria-busy="false" data-loading-label="Читаем...">
-            <span data-refresh-text>Обновить</span>
-          </button>
-        </div>
-      </div>
-      <div id="summaryGrid" class="engine-rows"></div>
-    </section>
-
     <section class="panel" id="profile-list">
       <div class="toolbar">
         <div>
@@ -102,6 +88,9 @@
           </p>
         </div>
         <div class="toolbar-right">
+          <button id="reloadBtn" class="refresh-button" type="button" aria-label="Обновить список ключей" title="Перечитать профили и маршруты с роутера. Локальные изменения будут сброшены." aria-busy="false" data-loading-label="Читаем...">
+            <span data-refresh-text>Обновить</span>
+          </button>
           <button id="pingAllBtn" class="ghost" title="Проверить TCP-подключение к серверам и выход через SOCKS активных профилей">Проверить все</button>
           <button id="openCreateBtn" class="info" type="button">+ Добавить ключ</button>
         </div>

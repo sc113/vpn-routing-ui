@@ -89,6 +89,12 @@ END {
 }
 ' "$RUNCFG_FILE" > "$GROUPS_FILE"
 
+if [ "${QUERY_STRING:-}" = "count=1" ]; then
+  printf '{"ok":true,"count":%s}' "$(awk 'END { print NR + 0 }' "$GROUPS_FILE")"
+  cleanup
+  exit 0
+fi
+
 awk '
 $1 == "object-group" && $2 == "fqdn" && $3 ~ /^domain-list[0-9]+$/ {
   group = $3

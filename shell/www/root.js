@@ -1,5 +1,6 @@
 (function () {
   const READ_TIMEOUT_MS = 15000;
+  const DNS_ROUTES_TIMEOUT_MS = 45000;
   const banner = document.getElementById("banner");
   const overviewStatusLine = document.getElementById("overviewStatusLine");
   const statusRows = document.getElementById("statusRows");
@@ -12,6 +13,7 @@
   const state = {
     status: null,
     profiles: null,
+    dnsRouteCount: null,
     runtime: [],
     runtimeLoading: false,
     runtimeError: "",
@@ -791,7 +793,7 @@
   }
 
   async function runDnsRefresh() {
-    if (state.actionBusy) {
+    if (state.actionBusy || state.reloadLoading) {
       return;
     }
     state.actionBusy = { kind: "router", engine: "dns", action: "dns-refresh" };
@@ -815,17 +817,9 @@
   }
 
   async function runVpnRefresh() {
-    if (state.actionBusy) {
+    if (state.actionBusy || state.reloadLoading || !state.profiles) {
       return;
     }
-
-    const activeProfiles = Array.isArray(state.profiles) ? state.profiles : [];
-    const hasEnabledXray = activeProfiles.some(
-      (profile) => profile && profile.enabled && Number(profile.localPort || 0) > 0 && profile.engine === "xray"
-    );
-    const hasEnabledSingbox = activeProfiles.some(
-      (profile) => profile && profile.enabled && Number(profile.localPort || 0) > 0 && profile.engine === "sing-box"
-    );
 
     state.actionBusy = { kind: "router", engine: "vpn", action: "vpn-refresh" };
     setControlsDisabled(true);
@@ -836,11 +830,36 @@
     );
 
     try {
+      const options = { cache: "no-store", timeoutMs: READ_TIMEOUT_MS };
+      const saved = await fetchJson("/cgi-bin/xray-profiles.cgi", options);
+      if (!Array.isArray(saved.profiles)) throw new Error("Не удалось прочитать профили с роутера.");
+      const routes = await fetchJson("/cgi-bin/router-dns-routes.cgi", { ...options, timeoutMs: DNS_ROUTES_TIMEOUT_MS });
+      const clients = await fetchJson("/cgi-bin/router-client-policies.cgi", options);
+      const assignedPolicies = new Set((clients.assignments || []).map((assignment) => assignment.policyId));
+      const usedProxies = new Set([
+        ...(routes.rules || []).map((rule) => rule.proxyId),
+        ...(clients.policies || []).filter((policy) => assignedPolicies.has(policy.id)).map((policy) => policy.proxyId),
+      ].filter((proxyId) => /^Proxy\d+$/.test(proxyId)));
+      const engines = new Set();
+      const proxies = routes.proxies || [];
+      for (const profile of enabledProfiles(saved.profiles)) {
+        const port = Number(profile.localPort);
+        const byPort = proxies.filter((proxy) => Number(proxy.port) === port && port > 0);
+        const proxy = proxies.find((entry) => entry.proxyId === profile.routerProxyId) ||
+          proxies.find((entry) => entry.name && entry.name === profile.name) ||
+          (byPort.length === 1 ? byPort[0] : null);
+        if (!(port > 0 || Number(proxy?.port) > 0) ||
+            (usedProxies.size && !usedProxies.has(proxy?.proxyId || profile.routerProxyId))) {
+          continue;
+        }
+        const engine = String(profile.engine || "").trim().toLowerCase();
+        engines.add(engine === "sing-box" || engine === "singbox" ? "singbox" : "xray");
+      }
       const params = new URLSearchParams();
-      if (hasEnabledXray) {
+      if (state.status.xrayInstalled && engines.has("xray")) {
         params.set("xray", "1");
       }
-      if (hasEnabledSingbox) {
+      if (state.status.singboxInstalled && state.status.singboxService && engines.has("singbox")) {
         params.set("singbox", "1");
       }
       const data = await fetchJson(`/cgi-bin/vpn-route-refresh.cgi?${params.toString()}`, {
@@ -905,12 +924,16 @@
     return running ? "Запущен" : installed ? "Остановлен" : "Не установлен";
   }
 
+  function enabledProfiles(profiles = state.profiles) {
+    return (profiles || []).filter((profile) => profile && profile.enabled !== false);
+  }
+
   function renderOverviewStatus() {
     const status = state.status;
     if (!overviewStatusLine || !status) return;
 
     const profiles = state.profiles;
-    const active = profiles ? profiles.filter((profile) => profile && profile.enabled !== false).length : 0;
+    const active = enabledProfiles().length;
     const profileStatus = profiles
       ? `Ключи <strong>${active} из ${profiles.length}</strong> включены`
       : "Статус ключей недоступен";
@@ -986,6 +1009,45 @@
     `;
   }
 
+  function renderRoutingRow() {
+    const profiles = state.profiles;
+    const active = enabledProfiles();
+    const usedPorts = new Set(active.map((profile) => Number(profile.localPort)));
+    let nextPort = 2086;
+    while (usedPorts.has(nextPort)) nextPort += 1;
+
+    const busy = state.actionBusy || state.reloadLoading;
+    return `
+      <section class="engine-row manage-engine-row summary-row-profiles">
+        <div class="engine-row-main">
+          <div class="overview-engine-heading">
+            <svg class="summary-row-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="m3 7 9-4 9 4-9 4-9-4zm0 5 9 4 9-4M3 17l9 4 9-4"/>
+            </svg>
+            <h3 class="engine-row-title">Маршрутизация</h3>
+          </div>
+          <div class="overview-engine-meta">
+            <div class="engine-inline-chip" title="Включённые профили среди сохранённых на роутере">
+              <span class="label">Профили</span>
+              <span class="value">${profiles ? active.length + " из " + profiles.length : "—"}</span>
+            </div>
+            <div class="engine-inline-chip" title="Следующий порт, свободный среди включённых профилей">
+              <span class="label">След. SOCKS</span>
+              <span class="value mono">${profiles ? ":" + nextPort : "—"}</span>
+            </div>
+            <div class="engine-inline-chip" title="Количество DNS-списков в настройках Keenetic">
+              <span class="label">DNS-маршрутов</span>
+              <span id="overviewDnsRouteCount" class="value">${state.dnsRouteCount ?? "—"}</span>
+            </div>
+          </div>
+        </div>
+        <div class="overview-action-buttons overview-reset-buttons">
+          <button type="button" class="info" data-router-action="dns-refresh" title="Пересобрать действующие DNS-маршруты и кэш адресов групп"${busy ? " disabled" : ""}>${actionLabel("router", "dns-refresh", actionBusyMatches("router", "dns", "dns-refresh"))}</button>
+          <button type="button" class="warning" data-router-action="vpn-refresh" title="Перезапустить используемые VPN-движки"${busy || !profiles ? " disabled" : ""}>${actionLabel("router", "vpn-refresh", actionBusyMatches("router", "vpn", "vpn-refresh"))}</button>
+        </div>
+      </section>`;
+  }
+
   function renderEngineRows() {
     renderPackageUpdateSummary();
     const status = state.status;
@@ -1016,6 +1078,7 @@
         configPath: status.singboxConfigPath || "/opt/etc/sing-box/config.json",
         icon: "M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM4 7.5l8 4.5 8-4.5M12 12v9",
       }),
+      renderRoutingRow(),
     ].join("");
   }
 
@@ -1063,6 +1126,9 @@
       showBanner("warn", "Загружаем данные с роутера...");
     }
     try {
+      const dnsCount = fetchJson("/cgi-bin/router-dns-routes.cgi?count=1", {
+        cache: "no-store", timeoutMs: READ_TIMEOUT_MS,
+      }).then((data) => Number.isSafeInteger(data.count) && data.count >= 0 ? data.count : null, () => null);
       state.statusSnapshotLoaded = false;
       state.runtime = [];
       state.runtimeLoading = false;
@@ -1091,6 +1157,11 @@
         clearBanner();
       }
 
+      const count = await dnsCount;
+      if (state.status !== statusResult.value) return;
+      state.dnsRouteCount = count;
+      const dnsCountEl = document.getElementById("overviewDnsRouteCount");
+      if (dnsCountEl) dnsCountEl.textContent = state.dnsRouteCount ?? "—";
     } catch (error) {
       state.systemHealthLoading = false;
       showBanner("error", "Не удалось загрузить состояние роутера: " + error.message);
@@ -1146,12 +1217,14 @@
       if (state.reloadLoading) return;
       state.reloadLoading = true;
       setControlsDisabled(false);
+      renderEngineRows();
       showBanner("warn", "Обновляем данные обзора...");
       try {
         await init("Данные обзора обновлены.");
       } finally {
         state.reloadLoading = false;
         setControlsDisabled(false);
+        renderEngineRows();
       }
     });
   }
