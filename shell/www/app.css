@@ -301,34 +301,10 @@ a {
   color: #ff8f8f;
 }
 
-.update-list {
-  display: grid;
-  gap: 10px;
-}
-
-.update-line {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: rgba(16, 21, 29, 0.20);
-}
-
 .update-line-main {
   display: grid;
   gap: 5px;
   min-width: 0;
-}
-
-.update-line-main strong {
-  font-size: 17px;
-}
-
-.update-line-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
 }
 
 .panel {
@@ -788,6 +764,14 @@ a {
   margin: 0 0 14px;
 }
 
+.overview-page .overview-ui-update > .toolbar {
+  margin-bottom: 0;
+}
+
+.overview-page .update-line-main > h2 {
+  margin: 0;
+}
+
 .overview-status-line {
   display: flex;
   flex-wrap: wrap;
@@ -822,22 +806,6 @@ a {
 
 .overview-engine-state.is-running::before {
   background: #62d89d;
-}
-
-.overview-management {
-  display: grid;
-  gap: 18px;
-  align-items: start;
-}
-
-.overview-management > .panel {
-  margin-bottom: 0;
-}
-
-@media (min-width: 1500px) {
-  .overview-management {
-    grid-template-columns: minmax(320px, 0.42fr) minmax(0, 1fr);
-  }
 }
 
 .overview-services {

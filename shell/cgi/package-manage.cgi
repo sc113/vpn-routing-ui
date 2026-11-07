@@ -147,7 +147,7 @@ if [ "$ACTION" = "update" ]; then
   if [ "$ENGINE" = "singbox" ] && is_mips_arch && version_ge_1_13 "$TARGET_VERSION"; then
     printf '{'
     printf '"ok":false,'
-    printf '"error":"Для sing-box на MIPS обновления 1.13+ через opkg отключены: эта ветка уже падала на роутере.",'
+    printf '"error":"Обновление этого пакета sing-box через Entware отключено для данной архитектуры.",'
     printf '"details":"%s"' "$(json_escape "$TARGET_VERSION")"
     printf '}'
     exit 0
@@ -183,7 +183,7 @@ elif [ "$ACTION" = "install" ]; then
     if [ -n "$TARGET_VERSION" ] && is_mips_arch && version_ge_1_13 "$TARGET_VERSION"; then
       printf '{'
       printf '"ok":false,'
-      printf '"error":"Для sing-box на MIPS установка ветки 1.13+ через opkg отключена: она уже падала на роутере.",'
+      printf '"error":"Установка этого пакета sing-box через Entware отключена для данной архитектуры.",'
       printf '"details":"%s"' "$(json_escape "$(clean_output "$REFRESH_OUTPUT")")"
       printf '}'
       exit 0

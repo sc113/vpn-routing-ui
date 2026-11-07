@@ -557,7 +557,7 @@
     engineUpdateStatusEl.textContent = text;
     if (checkUpdatesBtn) {
       checkUpdatesBtn.disabled = Boolean(state.actionBusy) || state.packageUpdatesLoading;
-      checkUpdatesBtn.textContent = state.packageUpdatesLoading ? "Проверяем..." : "Проверить версии";
+      checkUpdatesBtn.textContent = state.packageUpdatesLoading ? "Проверяем..." : "Проверить обновления";
     }
   }
 
@@ -566,14 +566,12 @@
     if (!info) return "";
     const version = String(info.opkgVersion || "").trim();
     const available = !updateState.disabled;
-    const tone = !version ? "chip-muted" : available ? "chip-ok" : "chip-warn";
+    const tone = !version || info.compatBlocked ? "chip-muted" : available ? "chip-ok" : "chip-warn";
     const suffix = available
       ? "доступен"
       : info.opkgPrerelease
         ? "предрелиз"
-        : info.compatBlocked
-          ? "ограничение MIPS"
-          : "недоступен";
+        : "недоступен";
     return `
       <div class="engine-inline-chip ${tone}" title="${escapeHtml(updateState.title)}">
         <span class="label">${version ? "Кандидат Entware" : "Entware"}</span>
@@ -614,7 +612,7 @@
     if (!info) {
       return {
         disabled: " disabled",
-        title: "Сначала нажмите «Проверить версии».",
+        title: "Сначала нажмите «Проверить обновления».",
       };
     }
     if (info.opkgHasUpdate && info.opkgPrerelease) {
@@ -626,7 +624,7 @@
     if (info.compatBlocked) {
       return {
         disabled: " disabled",
-        title: info.compatReason || "Обновление временно отключено по совместимости.",
+        title: "Обновление этого пакета через Entware отключено для данной архитектуры.",
       };
     }
     if (!info.safeOpkgUpdate) {

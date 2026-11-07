@@ -44,45 +44,34 @@
 
     <div id="banner" class="banner"></div>
 
-    <div class="overview-management">
-      <section class="panel">
-        <div class="toolbar">
-          <h2>Обновления</h2>
+    <section class="panel overview-ui-update">
+      <div class="toolbar">
+        <div class="update-line-main">
+          <h2>Обновление интерфейса</h2>
+          <span id="uiUpdateInfo" class="update-line-status" aria-live="polite">Версия UI не проверена.</span>
         </div>
-        <div class="update-list">
-          <div class="update-line">
-            <div class="update-line-main">
-              <strong>VPN Routing UI</strong>
-              <span id="uiUpdateInfo" class="update-line-status" aria-live="polite">Версия UI не проверена.</span>
-            </div>
-            <div class="update-line-actions">
-              <button id="updateUiBtn" class="info" type="button" title="Проверить GitHub и предложить установить доступную версию интерфейса">Обновить UI</button>
-              <button id="checkUiUpdateBtn" class="secondary" type="button" title="Сравнить установленную версию интерфейса с версией в GitHub">Проверить версию</button>
-            </div>
-          </div>
-          <div class="update-line">
-            <div class="update-line-main">
-              <strong>Пакеты Xray и sing-box</strong>
-              <span id="engineUpdateInfo" class="update-line-status" aria-live="polite">Проверка пакетов Entware ещё не запускалась.</span>
-            </div>
-            <div class="update-line-actions">
-              <button id="checkUpdatesBtn" class="secondary" type="button" title="Проверить доступные версии Xray и sing-box в Entware и GitHub">Проверить версии</button>
-            </div>
-          </div>
+        <div class="toolbar-right">
+          <button id="checkUiUpdateBtn" class="secondary" type="button" title="Сравнить установленную версию интерфейса с версией в GitHub">Проверить версию</button>
+          <button id="updateUiBtn" class="info" type="button" title="Проверить GitHub и предложить установить доступную версию интерфейса">Обновить UI</button>
         </div>
-      </section>
-      <section class="panel overview-services">
-        <div class="toolbar">
+      </div>
+    </section>
+
+    <section class="panel overview-services">
+      <div class="toolbar">
+        <div class="update-line-main">
           <h2>Ядра и сервисы</h2>
-          <div class="toolbar-right">
-            <button id="reloadBtn" class="refresh-button" type="button" aria-label="Обновить состояние движков" title="Перечитать состояние движков с роутера" aria-busy="false" data-loading-label="Обновляем...">
-              <span data-refresh-text>Обновить</span>
-            </button>
-          </div>
+          <span id="engineUpdateInfo" class="update-line-status" aria-live="polite">Проверка пакетов Entware ещё не запускалась.</span>
         </div>
-        <div id="statusRows" class="engine-rows"></div>
-      </section>
-    </div>
+        <div class="toolbar-right">
+          <button id="checkUpdatesBtn" class="secondary" type="button" title="Проверить доступные версии Xray и sing-box в Entware и GitHub">Проверить обновления</button>
+          <button id="reloadBtn" class="refresh-button" type="button" aria-label="Обновить состояние движков" title="Перечитать состояние движков с роутера" aria-busy="false" data-loading-label="Обновляем...">
+            <span data-refresh-text>Обновить</span>
+          </button>
+        </div>
+      </div>
+      <div id="statusRows" class="engine-rows"></div>
+    </section>
     </main>
   </div>
 

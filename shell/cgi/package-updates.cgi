@@ -122,7 +122,7 @@ print_engine_json() {
   fi
   if [ "$key" = "singbox" ] && [ -n "$upgradable" ] && is_mips_arch && version_ge_1_13 "$upgradable"; then
     compat_blocked=1
-    compat_reason="На MIPS обновления sing-box 1.13+ отключены: эта ветка уже падала на роутере."
+    compat_reason="Обновление этого пакета через Entware отключено для данной архитектуры."
   fi
   upstream=$(fetch_latest_tag "$latest_api")
 
