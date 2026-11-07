@@ -212,7 +212,11 @@ copy_payload() {
   [ -d "$BIN_SRC" ] || fail "не найдена папка bin/router: $BIN_SRC"
   [ -d "$INIT_SRC" ] || fail "не найдена папка init/router: $INIT_SRC"
 
-  cp -f "$WEB_SRC"/* "$TARGET_ROOT"/
+  for web_asset in "$WEB_SRC"/*; do
+    target_asset="$TARGET_ROOT/${web_asset##*/}"
+    cp -f "$web_asset" "$target_asset"
+    chmod 644 "$target_asset"
+  done
   cp -f "$CGI_SRC"/* "$TARGET_CGI"/
   rm -f "$TARGET_ROOT/xray.js" "$TARGET_ROOT/xray.html"
 
