@@ -2381,6 +2381,14 @@ button.profile-toggle.status-neutral:enabled:hover {
   margin: 0;
 }
 
+.modal-feedback {
+  margin: 0;
+}
+
+.modal-feedback.is-error {
+  color: #ffb1b1;
+}
+
 .modal-head-actions {
   display: inline-flex;
   align-items: center;

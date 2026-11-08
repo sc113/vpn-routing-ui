@@ -507,6 +507,10 @@ function markDnsRoutesApplied(routes, profiles) {
   state.appliedDnsRoutesSignature = makeDnsRoutesSignature(routes || state.dnsRoutes, profiles || getProfiles());
 }
 
+function hasPendingChanges() {
+  return (Boolean(state.appliedProfilesSignature) && isProfilesDirty()) || isDnsRoutesDirty();
+}
+
 function renderDirtyNotice() {
   const notice = $("dirtyNotice");
   const title = $("dirtyNoticeTitle");
@@ -516,13 +520,10 @@ function renderDirtyNotice() {
     return;
   }
 
-  const dirty =
-    !state.dnsRoutesLoading &&
-    (Boolean(state.appliedProfilesSignature) || Boolean(state.appliedDnsRoutesSignature)) &&
-    (isProfilesDirty() || isDnsRoutesDirty());
+  const dirty = hasPendingChanges();
   const visible = dirty || state.saveInFlight;
   notice.hidden = !visible;
-  button.disabled = !dirty || state.saveInFlight;
+  button.disabled = !dirty || state.saveInFlight || state.dnsRoutesLoading;
   button.textContent = state.saveInFlight ? "Отправляем..." : "Отправить на роутер";
 
   if (state.saveInFlight) {
@@ -545,14 +546,9 @@ function renderDirtyNotice() {
     return;
   }
 
-  const profiles = getProfiles();
-  const enabledCount = profiles.filter((profile) => profile.enabled).length;
-  text.textContent =
-    "Изменения пока сохранены только локально. Профилей: " +
-    profiles.length +
-    ", активных: " +
-    enabledCount +
-    ". Нажми кнопку справа, чтобы отправить всё на роутер.";
+  text.textContent = state.dnsRoutesLoading
+    ? "Отправка станет доступна, когда закончится загрузка DNS-маршрутов."
+    : "Нажмите «Отправить на роутер», чтобы применить изменения.";
 }
 
 function updateBusyControls() {
@@ -642,7 +638,11 @@ function updateBusyControls() {
   });
   if ($("modalSaveBtn")) {
     $("modalSaveBtn").disabled = busy;
-    $("modalSaveBtn").textContent = busy ? "Сохраняем..." : "Сохранить изменения";
+  }
+  if ($("modalApplyBtn")) {
+    const button = $("modalApplyBtn");
+    button.disabled = busy || state.dnsRoutesLoading;
+    button.textContent = state.dnsRoutesLoading ? "Читаем DNS-маршруты…" : "Отправить на роутер";
   }
 }
 
@@ -1556,6 +1556,8 @@ function hasExpectedLayout() {
       $("dnsRoutesTableBody") &&
       $("selectedOverview") &&
       $("profileModal") &&
+      $("modalApplyBtn") &&
+      $("modalFeedback") &&
       $("openCreateBtn") &&
       $("profileNameInput") &&
       $("restoreProfileNameBtn") &&
@@ -4244,8 +4246,16 @@ function openProfileModal(mode, profile) {
   state.modalDraft = draft;
   state.modalPreviousName = null;
   state.selectedId = draft.id;
+  setModalFeedback("");
   fillModalFields(draft);
   setModalOpen(true);
+}
+
+function setModalFeedback(message, isError = false) {
+  const feedback = $("modalFeedback");
+  feedback.textContent = message;
+  feedback.classList.toggle("is-error", isError);
+  feedback.hidden = !message;
 }
 
 function openCreateModal() {
@@ -4536,10 +4546,8 @@ function commitModalDraft() {
   state.profilesDoc = applyExclusiveDnsRules(state.profilesDoc, next.id);
 
   state.selectedId = next.id;
-  const wasEdit = state.modalMode === "edit";
   closeProfileModal();
   renderAll();
-  showBanner("ok", wasEdit ? "Профиль обновлён локально." : "Новый профиль добавлен локально.");
 }
 
 function applyLinkToModal(link) {
@@ -4563,7 +4571,7 @@ function applyLinkToModal(link) {
 
   state.modalDraft = parsed.protocol === "trojan" ? applyRouterFixes(parsed) : normalizeProfile(parsed);
   fillModalFields(state.modalDraft);
-  showBanner("ok", "Ключ разобран. Проверь поля и сохрани изменения.");
+  setModalFeedback("Ключ разобран. Проверьте поля перед отправкой.");
 }
 
 function duplicateModalDraft() {
@@ -5299,6 +5307,9 @@ function saveEverything() {
       new Error("Сейчас уже идёт сохранение. Дождись завершения текущей операции.")
     );
   }
+  if (state.dnsRoutesLoading) {
+    return Promise.reject(new Error("Дождитесь загрузки DNS-маршрутов перед отправкой."));
+  }
 
   let preparedProfiles = null;
   let built = null;
@@ -5430,7 +5441,26 @@ function saveEverything() {
   });
 }
 
+function submitPendingChanges() {
+  return saveEverything()
+    .then((summary) =>
+      init(
+        "Изменения отправлены на роутер." +
+          (summary && summary.storm && summary.storm.resetCount
+            ? " SOCKS-шторм сброшен на " + summary.storm.resetCount + " ProxyN."
+            : "")
+      )
+    )
+    .catch((error) => showBanner("error", error.message));
+}
+
 function wireEvents() {
+  window.addEventListener("beforeunload", function (event) {
+    if (state.saveInFlight || hasPendingChanges()) {
+      event.preventDefault();
+      event.returnValue = true;
+    }
+  });
   $("reloadBtn").addEventListener("click", function () {
     if (state.pageReloadLoading) {
       return;
@@ -5463,18 +5493,7 @@ function wireEvents() {
   }
 
   if ($("dirtySaveBtn")) {
-    $("dirtySaveBtn").addEventListener("click", function () {
-      saveEverything()
-        .then((summary) =>
-          init(
-            "Локальные изменения отправлены на роутер, DNS-маршруты подтверждены роутером, VPN/DNS reset выполнены" +
-              (summary && summary.storm && summary.storm.resetCount
-                ? ", SOCKS-шторм сброшен на " + summary.storm.resetCount + " ProxyN."
-                : ".")
-          )
-        )
-        .catch((error) => showBanner("error", error.message));
-    });
+    $("dirtySaveBtn").addEventListener("click", submitPendingChanges);
   }
 
   if ($("dnsBulkApplyBtn")) {
@@ -5515,19 +5534,30 @@ function wireEvents() {
 
   $("closeModalBtn").addEventListener("click", closeProfileModal);
 
-  $("modalSaveBtn").addEventListener("click", function () {
+  function saveFromEditor(sendToRouter) {
     try {
       commitModalDraft();
     } catch (error) {
-      showBanner("error", error.message);
+      setModalFeedback(error.message, true);
+      return;
     }
-  });
+    if (!hasPendingChanges()) {
+      showBanner("ok", "Изменений для отправки нет.");
+    } else if (sendToRouter) {
+      submitPendingChanges();
+    } else {
+      showBanner("ok", "Профиль сохранён локально. Нажмите «Отправить на роутер» для применения.");
+    }
+  }
+
+  $("modalApplyBtn").addEventListener("click", () => saveFromEditor(true));
+  $("modalSaveBtn").addEventListener("click", () => saveFromEditor(false));
 
   $("replaceLinkBtn").addEventListener("click", function () {
     try {
       applyLinkToModal($("replaceLinkInput").value);
     } catch (error) {
-      showBanner("error", error.message);
+      setModalFeedback(error.message, true);
     }
   });
 
@@ -5867,6 +5897,7 @@ function scheduleHashScroll() {
 
 function loadSupplementalRouterState(options) {
   const opts = options || {};
+  const savedProfiles = state.profilesDoc;
   beginDnsRoutesLoading();
   renderDnsBulkControls();
   renderDnsRoutesTable();
@@ -5877,16 +5908,19 @@ function loadSupplementalRouterState(options) {
       state.routerRuntime = [];
       state.routerRuntimeLoading = false;
       state.routerRuntimeError = "";
-      state.profilesDoc = mergeProfilesFromRouterProxies(state.profilesDoc, state.routerProxies, {
-        preferRouterState: Boolean(opts.preferRouterState),
-      });
       state.dnsRoutes = normalizeDnsRoutes(dnsData);
-      state.profilesDoc = mergeDnsRulesFromRoutes(state.profilesDoc, state.dnsRoutes);
+      const appliedProfiles = mergeDnsRulesFromRoutes(
+        mergeProfilesFromRouterProxies(savedProfiles, state.routerProxies, opts),
+        state.dnsRoutes
+      );
+      state.profilesDoc = state.profilesDoc === savedProfiles
+        ? appliedProfiles
+        : mergeDnsRulesFromRoutes(mergeProfilesFromRouterProxies(state.profilesDoc, state.routerProxies), state.dnsRoutes);
       state.dnsRoutesLoading = false;
       state.dnsRoutesError = "";
       finishDnsRoutesLoading();
-      markProfilesApplied(state.profilesDoc);
-      markDnsRoutesApplied(state.dnsRoutes, state.profilesDoc.profiles);
+      markProfilesApplied(appliedProfiles);
+      markDnsRoutesApplied(state.dnsRoutes, appliedProfiles.profiles);
       renderAll();
       scheduleHashScroll();
     })
@@ -5894,7 +5928,7 @@ function loadSupplementalRouterState(options) {
       state.dnsRoutesLoading = false;
       state.dnsRoutesError = error.message;
       finishDnsRoutesLoading();
-      markProfilesApplied(state.profilesDoc);
+      markProfilesApplied(savedProfiles);
       state.appliedDnsRoutesSignature = "";
       renderAll();
       scheduleHashScroll();
@@ -5941,7 +5975,7 @@ function init(message) {
 
     if (storedProfiles.profiles.length) {
       state.profilesDoc = stripDnsRulesFromProfilesDoc(storedProfiles);
-      state.appliedProfilesSignature = "";
+      markProfilesApplied(state.profilesDoc);
       ensureSelection();
       closeProfileModal();
       renderAll();
@@ -5957,7 +5991,7 @@ function init(message) {
 
     return loadLiveConfig().then((liveConfig) => {
       state.profilesDoc = migrateProfilesFromConfig(liveConfig);
-      state.appliedProfilesSignature = "";
+      markProfilesApplied(state.profilesDoc);
       ensureSelection();
       closeProfileModal();
       renderAll();
