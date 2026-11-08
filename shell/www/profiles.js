@@ -53,6 +53,7 @@ const state = {
   pingAllInFlight: false,
   pingAllProgress: null,
   saveInFlight: false,
+  saveNeedsRetry: false,
   saveProgress: null,
   proxyRuntimeBusyId: "",
   proxyRuntimeBusyAction: "",
@@ -508,7 +509,7 @@ function markDnsRoutesApplied(routes, profiles) {
 }
 
 function hasPendingChanges() {
-  return (Boolean(state.appliedProfilesSignature) && isProfilesDirty()) || isDnsRoutesDirty();
+  return state.saveNeedsRetry || (Boolean(state.appliedProfilesSignature) && isProfilesDirty()) || isDnsRoutesDirty();
 }
 
 function renderDirtyNotice() {
@@ -524,7 +525,7 @@ function renderDirtyNotice() {
   const visible = dirty || state.saveInFlight;
   notice.hidden = !visible;
   button.disabled = !dirty || state.saveInFlight || state.dnsRoutesLoading;
-  button.textContent = state.saveInFlight ? "Отправляем..." : "Отправить на роутер";
+  button.textContent = state.saveInFlight ? "Отправляем..." : state.saveNeedsRetry ? "Повторить отправку" : "Отправить на роутер";
 
   if (state.saveInFlight) {
     if (title) {
@@ -538,7 +539,7 @@ function renderDirtyNotice() {
   }
 
   if (title) {
-    title.textContent = "Есть локальные изменения";
+    title.textContent = state.saveNeedsRetry ? "Отправка не завершена" : "Есть локальные изменения";
   }
   renderSaveProgress();
 
@@ -548,7 +549,9 @@ function renderDirtyNotice() {
 
   text.textContent = state.dnsRoutesLoading
     ? "Отправка станет доступна, когда закончится загрузка DNS-маршрутов."
-    : "Нажмите «Отправить на роутер», чтобы применить изменения.";
+    : state.saveNeedsRetry
+      ? "Правки остались в этой вкладке. Можно повторить отправку."
+      : "Нажмите «Отправить на роутер», чтобы применить изменения.";
 }
 
 function updateBusyControls() {
@@ -4616,6 +4619,7 @@ function toggleProfileEnabled(profileId) {
   }
 
   const snapshot = clone(state.profilesDoc);
+  const previousRetry = state.saveNeedsRetry;
   const next = normalizeProfile(current);
   next.enabled = !next.enabled;
 
@@ -4629,6 +4633,7 @@ function toggleProfileEnabled(profileId) {
     )
     .catch((error) => {
       state.profilesDoc = snapshot;
+      state.saveNeedsRetry = previousRetry;
       ensureSelection();
       renderAll();
       throw error;
@@ -5311,6 +5316,9 @@ function saveEverything() {
     return Promise.reject(new Error("Дождитесь загрузки DNS-маршрутов перед отправкой."));
   }
 
+  const draftProfiles = state.profilesDoc;
+  const draftRoutes = state.dnsRoutes;
+  const appliedDnsRoutesSignature = state.appliedDnsRoutesSignature;
   let preparedProfiles = null;
   let built = null;
   let routerSyncPayload = "";
@@ -5426,6 +5434,8 @@ function saveEverything() {
       skipVpnRefresh: vpnRefreshBeforeProxySync,
     });
   }).then((summary) => {
+    markProfilesApplied(state.profilesDoc);
+    state.saveNeedsRetry = false;
     setSaveProgress(
       100,
       "Готово: изменения применены",
@@ -5433,9 +5443,11 @@ function saveEverything() {
     );
     return summary;
   }).catch((error) => {
-    return init().catch(() => null).then(() => {
-      throw error;
-    });
+    state.profilesDoc = draftProfiles;
+    state.dnsRoutes = draftRoutes;
+    state.appliedDnsRoutesSignature = appliedDnsRoutesSignature;
+    state.saveNeedsRetry = true;
+    throw new Error("Отправка остановилась. " + state.saveProgress.step + ". " + error.message, { cause: error });
   }).finally(() => {
     setSaveInFlight(false);
   });
@@ -5463,6 +5475,9 @@ function wireEvents() {
   });
   $("reloadBtn").addEventListener("click", function () {
     if (state.pageReloadLoading) {
+      return;
+    }
+    if (hasPendingChanges() && !window.confirm("Перечитать список с роутера и сбросить локальные правки?")) {
       return;
     }
     state.pageReloadLoading = true;
@@ -5975,6 +5990,7 @@ function init(message) {
 
     if (storedProfiles.profiles.length) {
       state.profilesDoc = stripDnsRulesFromProfilesDoc(storedProfiles);
+      state.saveNeedsRetry = false;
       markProfilesApplied(state.profilesDoc);
       ensureSelection();
       closeProfileModal();
@@ -5991,6 +6007,7 @@ function init(message) {
 
     return loadLiveConfig().then((liveConfig) => {
       state.profilesDoc = migrateProfilesFromConfig(liveConfig);
+      state.saveNeedsRetry = false;
       markProfilesApplied(state.profilesDoc);
       ensureSelection();
       closeProfileModal();

@@ -231,12 +231,37 @@ copy_payload() {
   cp -f "$INIT_SRC/S68vpn-routing-ui" "$TARGET_INIT/S68vpn-routing-ui"
 }
 
+fetch_local_ui() {
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsS --noproxy '*' --connect-timeout 2 --max-time 4 "$1"
+  else
+    wget -q -Y off -T 4 -t 1 -O - "$1"
+  fi
+}
+
+verify_web_ui() (
+  response=$(mktemp "$TARGET_STATE/.ui-check.XXXXXX") || exit 1
+  trap 'rm -f "$response"' EXIT
+  trap 'exit 1' HUP INT TERM
+  base_url="http://127.0.0.1:92"
+  for attempt in 1 2 3; do
+    if fetch_local_ui "$base_url/index.html" > "$response" &&
+       cmp -s "$TARGET_ROOT/index.html" "$response" &&
+       fetch_local_ui "$base_url/cgi-bin/ui-asset.cgi/root.js" > "$response" &&
+       cmp -s "$TARGET_ROOT/root.js" "$response"; then
+      exit 0
+    fi
+    sleep 1
+  done
+  exit 1
+)
+
 mark_ui_updated() {
   now_epoch=$(date +%s 2>/dev/null || echo 0)
   now_iso=$(date '+%Y-%m-%dT%H:%M:%S%z' 2>/dev/null || date 2>/dev/null || echo "")
   tmp="$VERSION_STATE.$$"
   if [ -f "$VERSION_STATE" ]; then
-    awk -F'|' '$1 != "ui" { print $0 }' "$VERSION_STATE" > "$tmp" 2>/dev/null || : > "$tmp"
+    awk -F'|' '$1 != "ui" { print $0 }' "$VERSION_STATE" > "$tmp"
   else
     : > "$tmp"
   fi
@@ -269,7 +294,6 @@ log "[4/7] Готовим чистую структуру VPN Routing UI ..."
 
 log "[5/7] Копируем web/CGI/helper/init.d ..."
 copy_payload
-mark_ui_updated
 chmod 755 "$TARGET_CGI"/* "$TARGET_BIN"/* \
   "$TARGET_INIT"/S66vpn-routing-tune \
   "$TARGET_INIT"/S67vpn-routing-engine-guard \
@@ -279,7 +303,9 @@ rm -f "$TARGET_INIT"/S67proxy-runtime-fix
 log "[6/7] Запускаем сервисы ..."
 "$TARGET_INIT"/S66vpn-routing-tune start >/dev/null 2>&1 || true
 "$TARGET_INIT"/S67vpn-routing-engine-guard start >/dev/null 2>&1 || true
-"$TARGET_INIT"/S68vpn-routing-ui start >/dev/null 2>&1 || true
+"$TARGET_INIT"/S68vpn-routing-ui start || fail "веб-сервис VPN Routing UI не запустился"
+verify_web_ui || fail "веб-сервис не отдал установленные файлы интерфейса по HTTP"
+mark_ui_updated
 
 log "[7/7] Готово."
 log ""
