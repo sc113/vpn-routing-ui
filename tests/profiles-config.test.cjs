@@ -10,7 +10,7 @@ const startup = source.lastIndexOf("bootstrap().catch((error) => {");
 assert.ok(startup > 0);
 function loadUI() {
   const context = vm.createContext({
-    URL, URLSearchParams, TextDecoder, Uint8Array, atob,
+    URL, URLSearchParams, TextDecoder, TextEncoder, Uint8Array, atob, btoa,
     document: { getElementById: () => null },
   });
   vm.runInContext(source.slice(0, startup), context);
@@ -22,6 +22,84 @@ const KEY = Buffer.alloc(32, 1).toString("base64url");
 const LEGACY_KEY = Buffer.alloc(32, 2).toString("base64url");
 const PASSWORD = "test:password/@%";
 const SID = "0123456789abcdef";
+
+function loadSaveFixture() {
+  const ui = loadUI();
+  vm.runInContext(`
+    setSaveInFlight = (value) => { state.saveInFlight = value; };
+    setSaveProgress = (percent, step) => { state.saveProgress = { percent, step }; };
+    renderAll = () => {};
+  `, ui);
+  const profiles = [
+    { ...profile(ui, "shadowsocks", "tcp", "none", "sing-box"), id: "004", name: "004", localPort: 2092, routerProxyId: "Proxy2" },
+    { ...profile(ui, "shadowsocks", "tcp", "none", "sing-box"), id: "from", name: "From", localPort: 2086, routerProxyId: "Proxy4" },
+    { ...profile(ui, "shadowsocks", "tcp", "none", "sing-box"), id: "to", name: "To", localPort: 2087, routerProxyId: "Proxy1" },
+  ];
+  const state = vm.runInContext("state", ui);
+  const proxies = profiles.map(p => ({ proxyId: p.routerProxyId, port: p.localPort, enabled: true }));
+  state.profilesDoc = ui.normalizeProfilesDoc({ profiles });
+  state.routerProxies = proxies;
+  state.dnsRoutes = [{ groupId: "domain-list1", proxyId: "Proxy4", profileId: "from" }];
+  ui.markProfilesApplied(ui.mergeDnsRulesFromRoutes(state.profilesDoc, state.dnsRoutes));
+  ui.markDnsRoutesApplied(state.dnsRoutes);
+  ui.setLocalDnsRouteProfileTarget("domain-list1", "to");
+  const calls = [];
+  ui.fetchJson = async (url, options) => {
+    calls.push(url);
+    if (url === "/cgi-bin/router-dns-routes-sync.cgi") {
+      assert.equal(options.body, "R|domain-list1|Proxy1");
+    }
+    if (url === "/cgi-bin/router-proxy-sync.cgi") {
+      return { mappings: profiles.map(p => ({ id: p.id, routerProxyId: p.routerProxyId })) };
+    }
+    return { ok: true, proxies: [] };
+  };
+  ui.loadDnsRoutes = async () => {
+    calls.push("DNS readback");
+    return { rules: [{ groupId: "domain-list1", proxyId: "Proxy1" }], proxies };
+  };
+  ui.loadRouterRuntime = async () => ({ proxies: [] });
+  return { ui, state, calls };
+}
+
+test("changing a DNS route between existing profiles does not restart engines or sync unrelated ProxyN", async () => {
+  const { ui, state, calls } = loadSaveFixture();
+  assert.equal(ui.isProfilesDirty(), false);
+  await ui.saveEverything();
+  assert.deepEqual(calls, [
+    "/cgi-bin/router-dns-routes-sync.cgi", "DNS readback", "/cgi-bin/dns-route-refresh.cgi?mode=intercept-only",
+  ]);
+  assert.equal(state.dnsRoutes[0].proxyId, "Proxy1");
+  assert.equal(ui.hasPendingChanges(), false);
+});
+
+test("a failed DNS refresh keeps the draft and retries only DNS", async () => {
+  const { ui, state, calls } = loadSaveFixture();
+  const fetchJson = ui.fetchJson;
+  ui.fetchJson = async (url, options) => {
+    if (url.startsWith("/cgi-bin/dns-route-refresh.cgi")) throw new Error("DNS refresh failed");
+    return fetchJson(url, options);
+  };
+  await assert.rejects(ui.saveEverything(), /Шаг 4 из 4: обновляем DNS-кэш.*DNS refresh failed/);
+  assert.equal(state.dnsRoutes[0].proxyId, "Proxy1");
+  assert.equal(ui.hasPendingChanges(), true);
+  calls.length = 0;
+  ui.fetchJson = fetchJson;
+  await ui.saveEverything();
+  assert.deepEqual(calls, [
+    "/cgi-bin/router-dns-routes-sync.cgi", "DNS readback", "/cgi-bin/dns-route-refresh.cgi?mode=intercept-only",
+  ]);
+});
+
+test("changing a key still saves the engine, syncs ProxyN and saves the profile", async () => {
+  const { ui, state, calls } = loadSaveFixture();
+  state.profilesDoc.profiles.find(p => p.id === "to").server.address = "new.example.com";
+  await ui.saveEverything();
+  assert.deepEqual(calls, [
+    "/cgi-bin/singbox-save.cgi", "/cgi-bin/router-proxy-sync.cgi", "/cgi-bin/router-dns-routes-sync.cgi",
+    "DNS readback", "/cgi-bin/xray-profiles-save.cgi", "/cgi-bin/dns-route-refresh.cgi?mode=intercept-only",
+  ]);
+});
 
 function profile(ui, protocol, network = "tcp", security = "tls", engine = "xray") {
   return ui.normalizeProfile({

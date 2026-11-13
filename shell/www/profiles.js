@@ -53,7 +53,7 @@ const state = {
   pingAllInFlight: false,
   pingAllProgress: null,
   saveInFlight: false,
-  saveNeedsRetry: false,
+  saveNeedsRetry: "",
   saveProgress: null,
   proxyRuntimeBusyId: "",
   proxyRuntimeBusyAction: "",
@@ -244,7 +244,7 @@ function setDnsRouteLock(groupId, locked) {
 }
 
 function makeProfilesSignature(doc) {
-  return JSON.stringify(normalizeProfilesDoc(doc));
+  return JSON.stringify(stripDnsRulesFromProfilesDoc(doc));
 }
 
 function makeDnsRoutesSignature(routes, profiles) {
@@ -509,7 +509,7 @@ function markDnsRoutesApplied(routes, profiles) {
 }
 
 function hasPendingChanges() {
-  return state.saveNeedsRetry || (Boolean(state.appliedProfilesSignature) && isProfilesDirty()) || isDnsRoutesDirty();
+  return Boolean(state.saveNeedsRetry) || (Boolean(state.appliedProfilesSignature) && isProfilesDirty()) || isDnsRoutesDirty();
 }
 
 function renderDirtyNotice() {
@@ -5098,22 +5098,6 @@ function verifySavedDnsRoutePayload(expectedPayload) {
   });
 }
 
-function buildVpnRefreshParamsFromProfiles(profiles) {
-  const params = new URLSearchParams();
-  const activeProfiles = normalizeProfilesDoc({ version: 1, profiles }).profiles.filter(
-    (profile) => profile.enabled && toNumber(profile.localPort)
-  );
-
-  if (activeProfiles.some((profile) => isXrayEngine(profile.engine))) {
-    params.set("xray", "1");
-  }
-  if (activeProfiles.some((profile) => isSingboxEngine(profile.engine))) {
-    params.set("singbox", "1");
-  }
-
-  return params;
-}
-
 function shouldSaveEngineConfig(profiles, engineId) {
   const activeProfiles = normalizeProfilesDoc({ version: 1, profiles }).profiles.filter(
     (profile) => profile.enabled && toNumber(profile.localPort)
@@ -5160,14 +5144,6 @@ function saveEngineConfigIfNeeded(engineId, config) {
       "Content-Type": "application/json",
     },
     body: pretty(config),
-  });
-}
-
-function runPostSaveVpnRefresh(profiles) {
-  const params = buildVpnRefreshParamsFromProfiles(profiles);
-  return fetchJson(`/cgi-bin/vpn-route-refresh.cgi?${params.toString()}`, {
-    method: "POST",
-    cache: "no-store",
   });
 }
 
@@ -5237,56 +5213,26 @@ function runPostSaveStormResetIfNeeded() {
     });
 }
 
-function runPostSaveMaintenance(profiles, hasDnsRoutes, options) {
-  const opts = options || {};
-  const skipVpnRefresh = Boolean(opts.skipVpnRefresh);
-  showBanner("warn", "Профили сохранены. Выполняем финальные проверки на роутере...");
+function runPostSaveMaintenance(hasDnsRoutes, dnsOnly) {
   setSaveProgress(
-    82,
-    skipVpnRefresh ? progressStep(8, 10, "VPN-порты уже подняты") : progressStep(8, 10, "перезапускаем VPN-слой"),
-    skipVpnRefresh
-      ? "VPN-движки уже перезапущены перед синхронизацией ProxyN, переходим к DNS reset."
-      : "Перезапускаем только реально используемые движки и обновляем VPN-маршруты."
+    90,
+    progressStep(dnsOnly ? 4 : 8, dnsOnly ? 4 : 9, hasDnsRoutes ? "обновляем DNS-кэш" : "пропускаем DNS reset"),
+    hasDnsRoutes
+      ? "Маршруты проверены. Обновляем кэш DNS без повторной пересборки списков."
+      : "DNS-маршруты не заданы, поэтому DNS reset не нужен."
   );
 
-  const summary = {
-    vpn: null,
-    dns: null,
-    storm: null,
-  };
-
-  return (skipVpnRefresh
-    ? Promise.resolve({
-        ok: true,
-        skipped: true,
-        message: "VPN-движки уже перезапущены перед синхронизацией ProxyN.",
-      })
-    : runPostSaveVpnRefresh(profiles)
-  )
-    .then((vpnResult) => {
-      summary.vpn = vpnResult || null;
-      setSaveProgress(
-        90,
-        hasDnsRoutes ? progressStep(9, 10, "обновляем DNS-кэш") : progressStep(9, 10, "пропускаем DNS reset"),
-        hasDnsRoutes
-          ? "Маршруты уже применены и проверены. Быстро перезапускаем только dns-proxy intercept без повторной пересборки всех списков."
-          : "DNS-маршруты не заданы, поэтому DNS reset не нужен."
-      );
-      return runPostSaveDnsRefresh(hasDnsRoutes);
-    })
-    .then((dnsResult) => {
-      summary.dns = dnsResult || null;
-      setSaveProgress(
-        96,
-        progressStep(10, 10, "проверяем SOCKS-шторм"),
-        "Считываем ProxyN runtime и сбрасываем зацикленные SOCKS-соединения, если они появились."
-      );
-      return runPostSaveStormResetIfNeeded();
-    })
-    .then((stormResult) => {
-      summary.storm = stormResult || { resetCount: 0, results: [] };
-      return summary;
-    });
+  return runPostSaveDnsRefresh(hasDnsRoutes).then((dnsResult) => {
+    if (dnsOnly) {
+      return { dns: dnsResult };
+    }
+    setSaveProgress(
+      96,
+      progressStep(9, 9, "проверяем SOCKS-шторм"),
+      "Считываем ProxyN runtime и сбрасываем зацикленные SOCKS-соединения, если они появились."
+    );
+    return runPostSaveStormResetIfNeeded().then((storm) => ({ dns: dnsResult, storm }));
+  });
 }
 
 function applyRouterSyncMappings(profiles, syncResult) {
@@ -5306,6 +5252,21 @@ function applyRouterSyncMappings(profiles, syncResult) {
   });
 }
 
+function canApplyDnsRoutesOnly() {
+  if (state.saveNeedsRetry === "profiles" || !state.appliedProfilesSignature || isProfilesDirty()) {
+    return false;
+  }
+  if (!isDnsRoutesDirty() && state.saveNeedsRetry !== "dns") {
+    return false;
+  }
+  const profiles = getProfiles();
+  const knownProxies = getRouterProxyRuntimeMap();
+  return getDnsRoutes().every((route) => {
+    const target = normalizeRouterProxyId(resolveDnsRouteSyncTarget(route, profiles));
+    return !target || knownProxies.has(target);
+  });
+}
+
 function saveEverything() {
   if (state.saveInFlight) {
     return Promise.reject(
@@ -5319,80 +5280,68 @@ function saveEverything() {
   const draftProfiles = state.profilesDoc;
   const draftRoutes = state.dnsRoutes;
   const appliedDnsRoutesSignature = state.appliedDnsRoutesSignature;
+  const dnsOnly = canApplyDnsRoutesOnly();
+  const totalSteps = dnsOnly ? 4 : 9;
   let preparedProfiles = null;
-  let built = null;
-  let routerSyncPayload = "";
   let hasDnsRoutes = false;
-  let dnsRouteSyncPayload = "";
-  let vpnRefreshBeforeProxySync = false;
   setSaveInFlight(true);
   setSaveProgress(
     2,
-    progressStep(1, 10, "готовим данные"),
-    "Проверяем локальные профили, назначения ProxyN и DNS-маршруты перед отправкой."
+    progressStep(1, totalSteps, "готовим данные"),
+    dnsOnly ? "Проверяем назначения DNS-маршрутов." : "Проверяем профили, назначения ProxyN и DNS-маршруты."
   );
 
   return Promise.resolve().then(() => {
+    hasDnsRoutes = getDnsRoutes().length > 0;
+    if (dnsOnly) {
+      return null;
+    }
     state.profilesDoc = validateLocalPortAssignments(validateRouterProxyAssignments(state.profilesDoc));
     state.profilesDoc = mergeDnsRulesFromRoutes(state.profilesDoc, getDnsRoutes());
-    built = buildEngineConfigsFromProfiles(state.profilesDoc);
-    state.profilesDoc = built.preparedProfiles;
-    preparedProfiles = normalizeProfilesDoc(state.profilesDoc);
-    routerSyncPayload = buildRouterSyncPayload(preparedProfiles.profiles);
-    hasDnsRoutes = getDnsRoutes().length > 0;
-    if (hasDnsRoutes) {
-      preparedProfiles = mergeDnsRulesFromRoutes(preparedProfiles, getDnsRoutes());
-      state.profilesDoc = preparedProfiles;
-    }
+    const built = buildEngineConfigsFromProfiles(state.profilesDoc);
+    preparedProfiles = built.preparedProfiles;
+    state.profilesDoc = preparedProfiles;
     setSaveProgress(
       12,
-      progressStep(2, 10, "сохраняем sing-box"),
+      progressStep(2, totalSteps, "сохраняем sing-box"),
       "Отправляем сгенерированный config sing-box на роутер или пропускаем шаг, если движок не используется."
     );
-    return saveEngineConfigIfNeeded("sing-box", built.singboxConfig);
+    return saveEngineConfigIfNeeded("sing-box", built.singboxConfig).then(() => {
+      setSaveProgress(
+        24,
+        progressStep(3, totalSteps, "сохраняем Xray"),
+        "Отправляем сгенерированный config Xray на роутер или пропускаем шаг, если движок не используется."
+      );
+      return saveEngineConfigIfNeeded("xray", built.xrayConfig);
+    });
   }).then(() => {
-    setSaveProgress(
-      24,
-      progressStep(3, 10, "сохраняем Xray"),
-      "Отправляем сгенерированный config Xray на роутер или пропускаем шаг, если движок не используется."
-    );
-    return saveEngineConfigIfNeeded("xray", built.xrayConfig);
-  }).then(() => {
-    setSaveProgress(
-      34,
-      progressStep(4, 10, "запускаем VPN-порты"),
-      "Перезапускаем нужные движки до создания ProxyN, чтобы локальные socks-порты уже слушали на роутере."
-    );
-    return runPostSaveVpnRefresh(preparedProfiles.profiles);
-  }).then(() => {
-    vpnRefreshBeforeProxySync = true;
+    if (dnsOnly) {
+      return null;
+    }
     setSaveProgress(
       44,
-      progressStep(5, 10, "синхронизируем ProxyN"),
-      "Обновляем привязки, описания и состояние ProxyN в Keenetic."
+      progressStep(4, totalSteps, "синхронизируем ProxyN"),
+      "Ждём готовности локальных SOCKS-портов и обновляем привязки ProxyN в Keenetic."
     );
     return fetchJson("/cgi-bin/router-proxy-sync.cgi", {
       method: "POST",
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
       },
-      body: routerSyncPayload,
+      body: buildRouterSyncPayload(preparedProfiles.profiles),
     });
   }).then((syncResult) => {
-    preparedProfiles = applyRouterSyncMappings(preparedProfiles.profiles, syncResult);
-    state.profilesDoc = preparedProfiles;
-    dnsRouteSyncPayload = hasDnsRoutes ? buildDnsRouteSyncPayload(getDnsRoutes(), preparedProfiles.profiles) : "";
+    if (!dnsOnly) {
+      preparedProfiles = applyRouterSyncMappings(preparedProfiles.profiles, syncResult);
+      state.profilesDoc = preparedProfiles;
+    }
     if (!hasDnsRoutes) {
-      setSaveProgress(
-        60,
-        progressStep(6, 10, "DNS-маршруты не меняются"),
-        "В UI нет DNS-маршрутов для отправки, переходим к сохранению списка профилей."
-      );
       return null;
     }
+    const dnsRouteSyncPayload = buildDnsRouteSyncPayload(getDnsRoutes());
     setSaveProgress(
       56,
-      progressStep(6, 10, "применяем DNS-маршруты"),
+      progressStep(dnsOnly ? 2 : 5, totalSteps, "применяем DNS-маршруты"),
       "Применяем " +
         getDnsRoutes().length +
         " назначений по очереди. При массовой смене всех списков Keenetic может выполнять этот шаг около двух минут."
@@ -5406,12 +5355,15 @@ function saveEverything() {
     }).then(() => {
       setSaveProgress(
         66,
-        progressStep(7, 10, "проверяем DNS-маршруты"),
+        progressStep(dnsOnly ? 3 : 6, totalSteps, "проверяем DNS-маршруты"),
         "Перечитываем DNS-маршруты с роутера и сверяем их с отправленным состоянием."
       );
       return verifySavedDnsRoutePayload(dnsRouteSyncPayload);
     });
   }).then(() => {
+    if (dnsOnly) {
+      return null;
+    }
     if (hasDnsRoutes) {
       preparedProfiles = mergeDnsRulesFromRoutes(preparedProfiles, state.dnsRoutes);
       state.profilesDoc = preparedProfiles;
@@ -5419,7 +5371,7 @@ function saveEverything() {
     const persistedProfiles = stripDnsRulesFromProfilesDoc(preparedProfiles);
     setSaveProgress(
       74,
-      progressStep(8, 10, "сохраняем список профилей"),
+      progressStep(7, totalSteps, "сохраняем список профилей"),
       "Записываем profiles.json для UI без дублирования DNS-правил внутри профилей."
     );
     return fetchJson("/cgi-bin/xray-profiles-save.cgi", {
@@ -5430,12 +5382,10 @@ function saveEverything() {
       body: pretty(persistedProfiles),
     });
   }).then(() => {
-    return runPostSaveMaintenance(preparedProfiles.profiles, hasDnsRoutes, {
-      skipVpnRefresh: vpnRefreshBeforeProxySync,
-    });
+    return runPostSaveMaintenance(hasDnsRoutes, dnsOnly);
   }).then((summary) => {
     markProfilesApplied(state.profilesDoc);
-    state.saveNeedsRetry = false;
+    state.saveNeedsRetry = "";
     setSaveProgress(
       100,
       "Готово: изменения применены",
@@ -5446,7 +5396,7 @@ function saveEverything() {
     state.profilesDoc = draftProfiles;
     state.dnsRoutes = draftRoutes;
     state.appliedDnsRoutesSignature = appliedDnsRoutesSignature;
-    state.saveNeedsRetry = true;
+    state.saveNeedsRetry = dnsOnly ? "dns" : "profiles";
     throw new Error("Отправка остановилась. " + state.saveProgress.step + ". " + error.message, { cause: error });
   }).finally(() => {
     setSaveInFlight(false);
@@ -5497,7 +5447,7 @@ function wireEvents() {
       saveEverything()
         .then((summary) =>
           init(
-            "Профили сохранены, DNS-маршруты подтверждены роутером, VPN/DNS reset выполнены" +
+            "Изменения отправлены на роутер" +
               (summary && summary.storm && summary.storm.resetCount
                 ? ", SOCKS-шторм сброшен на " + summary.storm.resetCount + " ProxyN."
                 : ".")
@@ -5990,7 +5940,7 @@ function init(message) {
 
     if (storedProfiles.profiles.length) {
       state.profilesDoc = stripDnsRulesFromProfilesDoc(storedProfiles);
-      state.saveNeedsRetry = false;
+      state.saveNeedsRetry = "";
       markProfilesApplied(state.profilesDoc);
       ensureSelection();
       closeProfileModal();
@@ -6007,7 +5957,7 @@ function init(message) {
 
     return loadLiveConfig().then((liveConfig) => {
       state.profilesDoc = migrateProfilesFromConfig(liveConfig);
-      state.saveNeedsRetry = false;
+      state.saveNeedsRetry = "";
       markProfilesApplied(state.profilesDoc);
       ensureSelection();
       closeProfileModal();

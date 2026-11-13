@@ -56,73 +56,52 @@ proxy_taken() {
   grep -Fxq "$1" "$ASSIGNED_FILE"
 }
 
-port_listening() {
-  port=$(printf '%s' "$1" | tr -cd '0-9')
-  [ -n "$port" ] || return 1
-
-  if command -v ss >/dev/null 2>&1; then
-    ss -lnt 2>/dev/null | awk -v port=":$port" 'index($4, port) { found = 1 } END { exit(found ? 0 : 1) }'
-    return $?
-  fi
-
-  netstat -lnt 2>/dev/null | awk -v port=":$port" 'index($4, port) { found = 1 } END { exit(found ? 0 : 1) }'
-}
-
-port_listening_on_host() {
-  host="$1"
-  port=$(printf '%s' "$2" | tr -cd '0-9')
-  [ -n "$host" ] || return 1
-  [ -n "$port" ] || return 1
-
-  if command -v ss >/dev/null 2>&1; then
-    ss -lnt 2>/dev/null | awk -v endpoint="$host:$port" 'index($4, endpoint) { found = 1 } END { exit(found ? 0 : 1) }'
-    return $?
-  fi
-
-  netstat -lnt 2>/dev/null | awk -v endpoint="$host:$port" 'index($4, endpoint) { found = 1 } END { exit(found ? 0 : 1) }'
-}
-
-find_preferred_listener_host() {
-  port=$(printf '%s' "$1" | tr -cd '0-9')
-  [ -n "$port" ] || return 1
-
-  if port_listening_on_host "127.0.0.1" "$port"; then
-    printf '127.0.0.1'
+list_tcp_listeners() {
+  if command -v ss >/dev/null 2>&1 && ss -lnt 2>/dev/null; then
     return 0
   fi
+  netstat -lnt 2>/dev/null
+}
 
-  if command -v ss >/dev/null 2>&1; then
-    host=$(ss -lnt 2>/dev/null | awk -v wanted_port="$port" '
-      {
-        split($4, parts, ":")
-        host = parts[1]
-        current_port = parts[length(parts)]
-        if (current_port == wanted_port && host != "0.0.0.0" && host ~ /^[0-9.]+$/) {
-          print host
-          exit
-        }
-      }
-    ')
-  else
-    host=$(netstat -lnt 2>/dev/null | awk -v wanted_port="$port" '
-      {
-        split($4, parts, ":")
-        host = parts[1]
-        current_port = parts[length(parts)]
-        if (current_port == wanted_port && host != "0.0.0.0" && host ~ /^[0-9.]+$/) {
-          print host
-          exit
-        }
-      }
-    ')
+wait_for_socks_listeners() {
+  # Check all required loopback sockets together before changing any ProxyN.
+  awk -F'|' '$1 == "P" && $2 != "" && $4 == "1" {
+    gsub(/[^0-9]/, "", $5)
+    if ($5 + 0 > 0) print $5 "|" $3 "|" $2
+  }' "$TMP_INPUT" > "$ENABLED_PORTS_FILE"
+  [ -s "$ENABLED_PORTS_FILE" ] || return 0
+
+  duplicate=$(awk -F'|' 'seen[$1]++ { print; exit }' "$ENABLED_PORTS_FILE")
+  if [ -n "$duplicate" ]; then
+    IFS='|' read -r duplicate_port duplicate_name duplicate_id <<EOF
+$duplicate
+EOF
+    first_name=$(awk -F'|' -v port="$duplicate_port" '$1 == port { print $2; exit }' "$ENABLED_PORTS_FILE")
+    fail "Два активных профиля используют один и тот же локальный порт" "$(decode_name "$first_name") и $(decode_name "$duplicate_name") :$duplicate_port"
   fi
 
-  if [ -n "$host" ]; then
-    printf '%s' "$host"
-    return 0
-  fi
+  remaining=12
+  while :; do
+    missing=$(list_tcp_listeners | awk -F'|' '
+      NR == FNR { wanted[++count] = $1; details[$1] = $0; next }
+      { split($0, fields, " "); listening[fields[4]] = 1 }
+      END {
+        for (i = 1; i <= count; i++) {
+          if (!listening["127.0.0.1:" wanted[i]]) { print details[wanted[i]]; exit }
+        }
+      }
+    ' "$ENABLED_PORTS_FILE" -)
+    [ -n "$missing" ] || return 0
+    [ "$remaining" -gt 0 ] || break
+    sleep 1
+    remaining=$((remaining - 1))
+  done
 
-  return 1
+  IFS='|' read -r missing_port missing_name missing_id <<EOF
+$missing
+EOF
+  name=$(sanitize_name "$(decode_name "$missing_name")")
+  fail "VPN-движок не открыл локальный SOCKS-порт за 12 секунд" "${name:-$missing_id} · 127.0.0.1:$missing_port"
 }
 
 old_proxy_for_id() {
@@ -402,6 +381,8 @@ if [ "$action" = "names" ]; then
   sync_names_only
 fi
 
+wait_for_socks_listeners
+
 while IFS='|' read -r record_type profile_id name_b64 enabled local_port proxy_hint || [ -n "$record_type$profile_id$name_b64$enabled$local_port$proxy_hint" ]; do
   record_type=$(printf '%s' "$record_type" | tr -d '\r')
   [ "$record_type" = "P" ] || continue
@@ -426,14 +407,6 @@ while IFS='|' read -r record_type profile_id name_b64 enabled local_port proxy_h
   if [ -z "$local_port" ]; then
     echo "$profile_id||$profile_name|$enabled|0" >> "$MAPPINGS_FILE"
     continue
-  fi
-
-  if [ "$enabled" = "1" ]; then
-    existing_name=$(awk -F'|' -v wanted_port="$local_port" '$1 == wanted_port { print $2; exit }' "$ENABLED_PORTS_FILE")
-    if [ -n "$existing_name" ]; then
-      fail "Два активных профиля используют один и тот же локальный порт" "$existing_name и $profile_name :$local_port"
-    fi
-    echo "$local_port|$profile_name" >> "$ENABLED_PORTS_FILE"
   fi
 
   candidate="$proxy_hint"
@@ -488,16 +461,7 @@ while IFS='|' read -r record_type profile_id name_b64 enabled local_port proxy_h
   if ! run_ndmc "interface $candidate proxy socks5-udp"; then
     fail "Не удалось включить UDP для $candidate" "$CMD_OUTPUT"
   fi
-  if [ "$enabled" = "1" ]; then
-    upstream_host=$(find_preferred_listener_host "$local_port")
-    if [ -z "$upstream_host" ]; then
-      fail "Не удалось определить рабочий локальный адрес socks-порта" "$profile_name :$local_port"
-    fi
-  else
-    upstream_host="127.0.0.1"
-  fi
-
-  if ! run_ndmc "interface $candidate proxy upstream $upstream_host $local_port"; then
+  if ! run_ndmc "interface $candidate proxy upstream 127.0.0.1 $local_port"; then
     fail "Не удалось назначить upstream для $candidate" "$CMD_OUTPUT"
   fi
   if ! run_ndmc "interface $candidate security-level public"; then
@@ -508,12 +472,6 @@ while IFS='|' read -r record_type profile_id name_b64 enabled local_port proxy_h
   fi
 
   if [ "$enabled" = "1" ]; then
-    if ! port_listening "$local_port"; then
-      fail "Локальный socks-порт не слушает на роутере" "$profile_name :$local_port"
-    fi
-    if ! port_listening_on_host "127.0.0.1" "$local_port"; then
-      fail "Внутренний loopback socks-порт не слушает на 127.0.0.1" "$profile_name :$local_port"
-    fi
     if ! run_ndmc "interface $candidate up"; then
       fail "Не удалось включить интерфейс $candidate" "$CMD_OUTPUT"
     fi

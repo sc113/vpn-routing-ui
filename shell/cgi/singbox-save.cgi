@@ -41,8 +41,9 @@ restart_or_start_singbox() {
   output=$("$SERVICE" restart 2>&1)
   code=$?
   if [ "$code" -ne 0 ] || ! singbox_running; then
-    output=$(printf '%s\n%s' "$output" "$("$SERVICE" start 2>&1)")
+    start_output=$("$SERVICE" start 2>&1)
     code=$?
+    output=$(printf '%s\n%s' "$output" "$start_output")
   fi
   RESTART_OUTPUT="$output"
   RESTART_CODE=$code
@@ -87,10 +88,18 @@ STAMP=$(date +%Y%m%d-%H%M%S)
 BACKUP_PATH=""
 if [ -f "$CONFIG" ]; then
   BACKUP_PATH="$BACKUP_DIR/config-$STAMP.json"
-  cp "$CONFIG" "$BACKUP_PATH"
+  if ! cp "$CONFIG" "$BACKUP_PATH"; then
+    rm -f "$TMP"
+    printf '{"ok":false,"error":"Не удалось сделать резервную копию конфига sing-box"}'
+    exit 0
+  fi
 fi
 
-cp "$TMP" "$CONFIG"
+if ! cp "$TMP" "$CONFIG"; then
+  rm -f "$TMP"
+  printf '{"ok":false,"error":"Не удалось записать конфиг sing-box"}'
+  exit 0
+fi
 rm -f "$TMP"
 
 restart_or_start_singbox
