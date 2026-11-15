@@ -339,10 +339,20 @@ ENABLED_PORTS_FILE="/opt/tmp/router-proxy-sync-enabled-$$.txt"
 
 mkdir -p "$PROFILE_DIR" "$BACKUP_DIR" /opt/tmp
 action=$(query_value action)
-cat > "$TMP_INPUT"
+cat > "$TMP_INPUT" || fail "Не удалось прочитать список профилей" ""
 
 if [ ! -s "$TMP_INPUT" ]; then
   fail "Пустое тело запроса" ""
+fi
+
+if [ "$(tr -d '\r' < "$TMP_INPUT")" = "EMPTY-PROFILES-V1" ]; then
+  [ "$REQUEST_METHOD" = "POST" ] && [ -z "$action" ] ||
+    fail "Пустой список допускается только при отправке профилей" ""
+elif ! awk -F'|' '
+  { sub(/\r$/, ""); if (NF != 6 || $1 != "P" || $2 == "" || $4 !~ /^[01]$/) bad=1 }
+  END { exit (NR == 0 || bad) }
+' "$TMP_INPUT"; then
+  fail "Некорректный список профилей" ""
 fi
 
 STAMP=$(date +%Y%m%d-%H%M%S)
@@ -545,14 +555,11 @@ if [ -s "$OLD_MAP_FILE" ]; then
   done < "$OLD_MAP_FILE"
 fi
 
-if ! ndmc -c 'system configuration save' >/tmp/router-proxy-sync-save.$$ 2>&1; then
-  details=$(cat /tmp/router-proxy-sync-save.$$ 2>/dev/null)
-  rm -f /tmp/router-proxy-sync-save.$$
-  fail "Не удалось сохранить конфигурацию Keenetic" "$details"
+if ! run_ndmc 'system configuration save'; then
+  fail "Не удалось сохранить конфигурацию Keenetic" "$CMD_OUTPUT"
 fi
-rm -f /tmp/router-proxy-sync-save.$$
 
-cp "$NEW_MAP_FILE" "$MAP_FILE"
+cp "$NEW_MAP_FILE" "$MAP_FILE" || fail "Не удалось сохранить привязки ProxyN" "$MAP_FILE"
 
 printf '{'
 printf '"ok":true,'

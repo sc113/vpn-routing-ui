@@ -102,6 +102,36 @@ test("removing a profile waits for its DNS routes to be applied to the replaceme
   assert.equal(ui.profileRemovalBlocker(removed), "");
 });
 
+test("removing every key sends explicit empty intent and saves an empty profile document", async () => {
+  const { ui, state } = loadSaveFixture();
+  state.dnsRoutes = [{ groupId: "domain-list1", proxyId: "ISP" }];
+  ui.markDnsRoutesApplied(state.dnsRoutes);
+  state.profilesDoc.profiles = [];
+  const posts = [];
+  ui.fetchJson = async (url, options) => {
+    if (options?.method === "POST") posts.push([url, options.body]);
+    return { ok: true, mappings: [] };
+  };
+  ui.loadDnsRoutes = async () => ({ rules: [{ groupId: "domain-list1", proxyId: "ISP" }], proxies: [] });
+  await ui.saveEverything();
+  assert.equal(posts.find(([url]) => url === "/cgi-bin/router-proxy-sync.cgi")[1], "EMPTY-PROFILES-V1");
+  assert.deepEqual(JSON.parse(posts.find(([url]) => url === "/cgi-bin/xray-profiles-save.cgi")[1]).profiles, []);
+  assert.equal(state.dnsRoutes[0].proxyId, "ISP");
+});
+
+test("initialization respects a saved empty list instead of importing old Xray config", async () => {
+  const ui = loadUI();
+  vm.runInContext(`
+    loadStatus = async () => ({});
+    loadProfilesDoc = async () => ({ version: 1, profiles: [] });
+    loadLiveConfig = async () => { throw new Error("unexpected migration"); };
+    closeProfileModal = clearDnsRoutesCountdown = renderAll = scheduleHashScroll = () => {};
+    loadSupplementalRouterState = async () => {};
+  `, ui);
+  await ui.init();
+  assert.deepEqual(plain(vm.runInContext("state.profilesDoc.profiles", ui)), []);
+});
+
 test("changing a key still saves the engine, syncs ProxyN and saves the profile", async () => {
   const { ui, state, calls } = loadSaveFixture();
   state.profilesDoc.profiles.find(p => p.id === "to").server.address = "new.example.com";

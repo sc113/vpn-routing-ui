@@ -778,7 +778,11 @@ function runProxyNamesSync() {
     return Promise.reject(new Error("Сначала дождись завершения текущей операции."));
   }
 
-  const payload = buildRouterSyncPayload(getProfiles());
+  const profiles = getProfiles();
+  if (!profiles.length) {
+    return Promise.reject(new Error("В списке нет ключей для синхронизации имён."));
+  }
+  const payload = buildRouterSyncPayload(profiles);
   setSaveInFlight(true);
   setSaveProgress(
     20,
@@ -5123,6 +5127,7 @@ function utf8ToBase64(value) {
 }
 
 function buildRouterSyncPayload(profiles) {
+  if (!profiles.length) return "EMPTY-PROFILES-V1";
   return profiles
     .map((profile) => {
       return [
@@ -6067,13 +6072,9 @@ function init(message) {
     const status = items[0];
     const rawProfilesDoc = items[1];
     const storedProfiles = normalizeProfilesDoc(rawProfilesDoc);
-    const hasStoredDnsRules =
-      Array.isArray(rawProfilesDoc && rawProfilesDoc.profiles) &&
-      rawProfilesDoc.profiles.some((profile) => Array.isArray(profile && profile.dnsRules));
-
     state.status = status;
 
-    if (storedProfiles.profiles.length) {
+    if (Array.isArray(rawProfilesDoc?.profiles) && rawProfilesDoc.initialized !== false) {
       state.profilesDoc = stripDnsRulesFromProfilesDoc(storedProfiles);
       state.saveNeedsRetry = "";
       markProfilesApplied(state.profilesDoc);

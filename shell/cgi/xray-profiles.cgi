@@ -16,5 +16,5 @@ mkdir -p "$PROFILE_DIR"
 if [ -s "$PROFILE_FILE" ]; then
   cat "$PROFILE_FILE"
 else
-  printf '{"version":1,"profiles":[]}'
+  printf '{"version":1,"profiles":[],"initialized":false}'
 fi
