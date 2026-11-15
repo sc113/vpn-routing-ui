@@ -3403,19 +3403,14 @@ function renderDnsRoutesTable() {
         const externalRoute = !assignment && isExternalDnsRouteTarget(route.proxyId) ? route.proxyId : "";
         const proxyId = (assignment && assignment.proxyId) || externalRoute || normalizeRouterProxyId(route.proxyId) || "-";
         const directRoute = Boolean(externalRoute);
-        const runtime = assignment ? getRouterProxyRuntime(assignment.proxyId) : null;
-        const statusParts = [];
-        if (assignment) {
-          const status = profileRouteStatus(assignment.profile, assignment.proxyId, runtime);
-          statusParts.push(profileRouteStatusPill(status));
-        } else if (externalRoute) {
-          statusParts.push('<span class="status-pill status-direct-first tiny-status">Прямое подключение</span>');
-        } else if (proxyId !== "-") {
-          statusParts.push(profileRouteStatusPill(profileRouteStatus(null, proxyId, getRouterProxyRuntime(proxyId))));
-        } else {
-          statusParts.push('<span class="status-pill status-neutral tiny-status status-unassigned">Нет маршрута</span>');
-        }
-        const statusHtml = `<div class="dns-route-status-stack">${statusParts.join("")}</div>`;
+        const routeStatus = proxyId !== "-" && !directRoute
+          ? profileRouteStatus(assignment?.profile, proxyId, getRouterProxyRuntime(proxyId))
+          : null;
+        const statusHtml = routeStatus
+          ? profileRouteStatusPill(routeStatus)
+          : directRoute
+            ? '<span class="status-pill status-direct-first tiny-status">Прямое подключение</span>'
+            : '<span class="status-pill status-neutral tiny-status status-unassigned">Нет маршрута</span>';
         const selectClass = assignment || externalRoute ? "dns-route-select" : "dns-route-select is-unassigned";
         const currentProfileId = assignment ? assignment.profile.id : directRoute ? DIRECT_DNS_SELECT_VALUE : "";
         const disabledAttr = state.saveInFlight ? " disabled" : "";
@@ -3443,7 +3438,7 @@ function renderDnsRoutesTable() {
         if (directRoute) {
           rowClasses.push("dns-route-row-direct-first");
         }
-        if (proxyProblem) {
+        if (routeStatus?.kind === "bad") {
           rowClasses.push("dns-route-row-problem");
         }
         if (locked) {

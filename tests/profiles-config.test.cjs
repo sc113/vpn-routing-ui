@@ -8,10 +8,10 @@ const test = require("node:test");
 const source = fs.readFileSync(path.join(__dirname, "../shell/www/profiles.js"), "utf8");
 const startup = source.lastIndexOf("bootstrap().catch((error) => {");
 assert.ok(startup > 0);
-function loadUI() {
+function loadUI(nodes = {}) {
   const context = vm.createContext({
     URL, URLSearchParams, TextDecoder, TextEncoder, Uint8Array, atob, btoa,
-    document: { getElementById: () => null },
+    document: { getElementById: (id) => nodes[id] || null },
   });
   vm.runInContext(source.slice(0, startup), context);
   return context;
@@ -114,8 +114,14 @@ function profile(ui, protocol, network = "tcp", security = "tls", engine = "xray
 }
 
 test("a working HTTPS probe does not mark a disabled Keenetic interface as working", async () => {
-  const ui = loadUI();
+  const table = { innerHTML: "" };
+  const ui = loadUI({ dnsRoutesTableBody: table });
   const p = { ...profile(ui, "trojan"), routerProxyId: "Proxy1" };
+  const state = vm.runInContext("state", ui);
+  state.profilesDoc = ui.normalizeProfilesDoc({ profiles: [p] });
+  state.dnsRoutes = [{ groupId: "domain-list1", proxyId: "Proxy1" }];
+  state.dnsRoutesLoading = false;
+  state.routerProxies = [{ proxyId: "Proxy1", configuredUp: true, state: "down", ctrl: "disabled", port: p.localPort }];
   ui.markProfilesApplied({ profiles: [p] });
   ui.fetchProbeJson = async () => ({ tcpOk: true, tcpMs: 59, proxyAttempted: true, proxyOk: true, proxyMs: 1120 });
   await ui.pingProfile(p);
@@ -124,6 +130,8 @@ test("a working HTTPS probe does not mark a disabled Keenetic interface as worki
   const status = ui.profileRouteStatus(p, "Proxy1", { configuredUp: true, state: "down", ctrl: "disabled" });
   assert.equal(status.kind, "bad");
   assert.equal(status.text, "Интерфейс выключен");
+  assert.match(table.innerHTML, /dns-route-row-problem/);
+  assert.match(table.innerHTML, /Интерфейс выключен/);
 });
 
 test("TCP stays visible when HTTPS fails, and a draft cannot reuse the installed key's result", async () => {
