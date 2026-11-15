@@ -1291,7 +1291,12 @@ function profileRouteStatus(profile, proxyId, runtime) {
       : { kind: "warn", text: "Интерфейс не найден", detail: (proxyId || "ProxyN") + " отсутствует в полученной конфигурации Keenetic." };
   }
   if (runtime.state === "down" || runtime.ctrl === "disabled" || !(runtime.configuredUp || runtime.enabled)) {
-    return { kind: "bad", text: "Интерфейс выключен", detail: proxyId + " выключен в Keenetic. Трафик по маршруту через него не проходит." };
+    return {
+      kind: "bad",
+      text: "Интерфейс выключен",
+      detail: proxyId + " выключен в Keenetic. Включите интерфейс в строке ключа или назначьте другой проверенный профиль.",
+      canEnable: Boolean(profile?.enabled && proxyId && !state.routerRuntimeError),
+    };
   }
   const reason = state.routerRuntimeError ? "" : routerProxyAttentionReason(runtime);
   if (reason) {
@@ -1312,6 +1317,15 @@ function profileRouteStatus(profile, proxyId, runtime) {
 
 function profileRouteStatusPill(status) {
   return `<span class="status-pill status-${status.kind} tiny-status" title="${escapeHtml(status.detail)}">${escapeHtml(status.text)}</span>`;
+}
+
+function profileRouteControl(status, proxyId) {
+  if (!status.canEnable) return profileRouteStatusPill(status);
+  const busy = state.proxyRuntimeBusyId === proxyId;
+  return `<span class="route-off-label" title="${escapeHtml(status.detail)}">Выключен</span>
+    <button type="button" class="secondary compact-action-btn" data-proxy-runtime-action="enable"
+      data-proxy-id="${escapeHtml(proxyId)}" title="Проверить HTTPS и включить этот интерфейс в Keenetic"
+      ${state.saveInFlight || state.proxyRuntimeBusyId || state.clientPolicyBusyMac ? "disabled" : ""}>${busy ? "Проверяем…" : "Включить"}</button>`;
 }
 
 function routerProxyNameMismatch(profile) {
@@ -3318,10 +3332,10 @@ function renderProfilesTable() {
           <td class="profile-cell profile-cell-name">${escapeHtml(profile.name)}</td>
           <td class="mono">${escapeHtml(profile.server.address || "-")}</td>
           <td class="mono profile-number">${profile.server.port ? escapeHtml(profile.server.port) : "-"}</td>
-          <td>${escapeHtml(transportLabel(profile))}</td>
+          <td class="col-transport">${escapeHtml(transportLabel(profile))}</td>
           <td>${escapeHtml(securityLabel(profile))}</td>
           <td class="mono">${escapeHtml(profile.engine)}</td>
-          <td>${proxyId ? `<span class="mono">${escapeHtml(proxyId)}</span> ` : ""}${profileRouteStatusPill(routeStatus)}</td>
+          <td>${proxyId ? `<span class="mono">${escapeHtml(proxyId)}</span> ` : ""}${profileRouteControl(routeStatus, proxyId)}</td>
           <td class="mono profile-number">${profile.localPort ? ":" + escapeHtml(profile.localPort) : "auto"}</td>
           <td class="delay-cell profile-number">${tcpProbeSummary(profile)}</td>
           <td>${probePill(profile, true)}</td>
@@ -3407,7 +3421,9 @@ function renderDnsRoutesTable() {
           ? profileRouteStatus(assignment?.profile, proxyId, getRouterProxyRuntime(proxyId))
           : null;
         const statusHtml = routeStatus
-          ? profileRouteStatusPill(routeStatus)
+          ? routeStatus.canEnable
+            ? `${profileRouteStatusPill(routeStatus)} <a href="#profile-list" title="Открыть таблицу ключей и включить интерфейс">К ключам</a>`
+            : profileRouteStatusPill(routeStatus)
           : directRoute
             ? '<span class="status-pill status-direct-first tiny-status">Прямое подключение</span>'
             : '<span class="status-pill status-neutral tiny-status status-unassigned">Нет маршрута</span>';
@@ -3589,18 +3605,22 @@ function renderProxyRuntimeTable() {
           usageParts.push("Клиенты: " + usage.clientLabels.join(", "));
         }
         const usageText = usageParts.length ? usageParts.join(" | ") : "Пока не используется правилами.";
-        const canRestart = Boolean(proxy.configuredUp);
+        const isDown = proxy.state === "down" || proxy.ctrl === "disabled";
+        const canEnable = Boolean(proxy.configuredUp && isDown);
+        const canRestart = Boolean(proxy.configuredUp && !isDown);
         const busy = Boolean(
           state.proxyRuntimeBusyId ||
             state.saveInFlight ||
             state.clientPolicyBusyMac ||
-            !canRestart
+            !(canRestart || canEnable)
         );
         const thisBusy = state.proxyRuntimeBusyId === proxy.proxyId;
         const thisAction = thisBusy ? state.proxyRuntimeBusyAction : "";
         const activeRuntime = Boolean(proxy.configuredUp || proxy.enabled);
         const attentionReason = routerProxyAttentionReason(proxy);
-        const healthHtml = proxy.healthy
+        const healthHtml = canEnable
+          ? '<span class="status-pill status-bad tiny-status">Интерфейс выключен</span>'
+          : proxy.healthy
           ? '<span class="status-pill status-ok tiny-status">Подключён</span>'
           : activeRuntime && attentionReason
             ? '<span class="status-pill status-bad tiny-status" title="' +
@@ -3662,8 +3682,8 @@ function renderProxyRuntimeTable() {
             <td>${escapeHtml(usageText)}</td>
             <td>
               <div class="row-actions">
-                <button type="button" class="warning compact-action-btn" data-proxy-runtime-action="restart" data-proxy-id="${escapeHtml(proxy.proxyId)}"${busy ? " disabled" : ""} title="${escapeHtml(canRestart ? "Мягко переподнять именно этот ProxyN." : "Кнопка доступна только для активных ProxyN.")}">${thisBusy && thisAction === "restart" ? "Перезапускаем..." : canRestart ? "Переподнять" : "Не активен"}</button>
-                <button type="button" class="danger compact-action-btn" data-proxy-runtime-action="storm-reset" data-proxy-id="${escapeHtml(proxy.proxyId)}"${busy ? " disabled" : ""} title="${escapeHtml(canRestart ? "Сбросить только выбранный ProxyN: кратко опустить интерфейс, погасить его hev-socks5-tunnel и поднять обратно. Это легче, чем общий VPN reset." : "Кнопка доступна только для активных ProxyN.")}">${thisBusy && thisAction === "storm-reset" ? "Сбрасываем..." : "Сброс шторма"}</button>
+                <button type="button" class="warning compact-action-btn" data-proxy-runtime-action="${canEnable ? "enable" : "restart"}" data-proxy-id="${escapeHtml(proxy.proxyId)}"${busy ? " disabled" : ""} title="${canEnable ? "Проверить HTTPS и включить выбранный интерфейс" : "Переподнять выбранный интерфейс"}">${thisBusy && thisAction === "enable" ? "Проверяем…" : thisBusy && thisAction === "restart" ? "Перезапускаем…" : canEnable ? "Включить" : canRestart ? "Переподнять" : "Не активен"}</button>
+                <button type="button" class="danger compact-action-btn" data-proxy-runtime-action="storm-reset" data-proxy-id="${escapeHtml(proxy.proxyId)}"${busy || !canRestart ? " disabled" : ""} title="${escapeHtml(canRestart ? "Сбросить соединения выбранного ProxyN и поднять интерфейс обратно." : "Сначала включите интерфейс.")}">${thisBusy && thisAction === "storm-reset" ? "Сбрасываем..." : "Сброс шторма"}</button>
               </div>
             </td>
           </tr>
@@ -3950,16 +3970,22 @@ function runProxyRuntimeAction(proxyId, action) {
   ) {
     return Promise.reject(new Error("Сначала дождись завершения текущей операции."));
   }
+  if (action === "enable" && !window.confirm(
+    "Включить " + normalized + " в Keenetic? Назначенные маршруты начнут использовать его сразу. " +
+    "Первые 20 секунд интерфейс проверяет нагрузку и откатывает включение при перегрузке."
+  )) {
+    return Promise.resolve();
+  }
 
   state.proxyRuntimeBusyId = normalized;
   state.proxyRuntimeBusyAction = action || "restart";
   updateBusyControls();
-  renderDnsRoutesTable();
-  renderClientPolicies();
-  renderProxyRuntimeTable();
+  renderAll();
   showBanner(
     "warn",
-    (action === "storm-reset" ? "Сбрасываем локальный SOCKS-шторм на " : "Переподнимаем ") +
+    (action === "enable"
+      ? "Проверяем HTTPS и пробуем включить "
+      : action === "storm-reset" ? "Сбрасываем локальный SOCKS-шторм на " : "Переподнимаем ") +
       normalized +
       " и заново проверяем его состояние..."
   );
@@ -4056,7 +4082,7 @@ function renderSelectedOverview() {
       </div>
       <div class="selected-overview-card">
         <div class="label">DNS-маршруты</div>
-        <div class="value">${profileRouteStatusPill(routeStatus)}</div>
+        <div class="value">${profileRouteControl(routeStatus, proxyId)}</div>
         <div class="value">${escapeHtml(buildDnsRulesSummary(profile))}</div>
       </div>
       <div class="selected-overview-card">

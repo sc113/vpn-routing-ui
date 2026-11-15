@@ -130,6 +130,7 @@ test("a working HTTPS probe does not mark a disabled Keenetic interface as worki
   const status = ui.profileRouteStatus(p, "Proxy1", { configuredUp: true, state: "down", ctrl: "disabled" });
   assert.equal(status.kind, "bad");
   assert.equal(status.text, "Интерфейс выключен");
+  assert.match(ui.profileRouteControl(status, "Proxy1"), /data-proxy-runtime-action="enable"/);
   assert.match(table.innerHTML, /dns-route-row-problem/);
   assert.match(table.innerHTML, /Интерфейс выключен/);
 });

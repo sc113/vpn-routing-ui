@@ -451,10 +451,10 @@
       return busy ? "Перезапускаем..." : "Рестарт";
     }
     if (kind === "router" && action === "dns-refresh") {
-      return busy ? "DNS reset..." : "DNS reset";
+      return busy ? "Пересобираем DNS…" : "Пересобрать DNS";
     }
     if (kind === "router" && action === "vpn-refresh") {
-      return busy ? "VPN reset..." : "VPN reset";
+      return busy ? "Перезапускаем VPN…" : "Перезапустить VPN";
     }
     if (kind === "router" && action === "status-refresh") {
       return busy ? "Считываем..." : "Считать статус";
@@ -792,6 +792,30 @@
     }
   }
 
+  async function showResetResult(message) {
+    let down;
+    try {
+      const runtime = await fetchJson("/cgi-bin/router-runtime-status.cgi", { cache: "no-store", timeoutMs: READ_TIMEOUT_MS });
+      if (!Array.isArray(runtime.proxies)) throw new Error("Нет данных об интерфейсах.");
+      down = runtime.proxies.filter((proxy) => proxy.configuredUp && (proxy.state === "down" || proxy.ctrl === "disabled"));
+    } catch {
+      showBanner("warn", message + " Текущее состояние интерфейсов Keenetic проверить не удалось.");
+      return;
+    }
+    if (!down.length) {
+      showBanner("ok", message);
+      return;
+    }
+    const names = down.map((proxy) => proxy.proxyId).join(", ");
+    showBanner("warn", message + " Выключены в Keenetic: " + names + ". Для включения откройте строку ключа. ");
+    if (banner) {
+      const link = document.createElement("a");
+      link.href = "/profiles.html#profile-list";
+      link.textContent = "Открыть список ключей";
+      banner.appendChild(link);
+    }
+  }
+
   async function runDnsRefresh() {
     if (state.actionBusy || state.reloadLoading) {
       return;
@@ -805,10 +829,9 @@
         method: "POST",
         cache: "no-store",
       });
-      await init(
-        (data.message || "DNS-маршруты пересобраны.") +
-          (data.backupPath ? " Бэкап: " + data.backupPath : "")
-      );
+      if (data.ok !== true) throw new Error("Роутер не подтвердил пересборку DNS.");
+      await init();
+      await showResetResult(data.message || "DNS-маршруты пересобраны.");
     } finally {
       state.actionBusy = null;
       setControlsDisabled(false);
@@ -866,11 +889,9 @@
         method: "POST",
         cache: "no-store",
       });
-      await init(
-        (data.message || "VPN-слой перезапущен.") +
-          (data.runtime ? " " + data.runtime : "") +
-          (data.backupPath ? " Бэкап: " + data.backupPath : "")
-      );
+      if (data.ok !== true) throw new Error("Роутер не подтвердил перезапуск VPN.");
+      await init();
+      await showResetResult(data.message || "VPN-движки перезапущены.");
     } finally {
       state.actionBusy = null;
       setControlsDisabled(false);
@@ -1042,8 +1063,8 @@
           </div>
         </div>
         <div class="overview-action-buttons overview-reset-buttons">
-          <button type="button" class="info" data-router-action="dns-refresh" title="Пересобрать действующие DNS-маршруты и кэш адресов групп"${busy ? " disabled" : ""}>${actionLabel("router", "dns-refresh", actionBusyMatches("router", "dns", "dns-refresh"))}</button>
-          <button type="button" class="warning" data-router-action="vpn-refresh" title="Перезапустить используемые VPN-движки"${busy || !profiles ? " disabled" : ""}>${actionLabel("router", "vpn-refresh", actionBusyMatches("router", "vpn", "vpn-refresh"))}</button>
+          <button type="button" class="info" data-router-action="dns-refresh" title="Пересобрать DNS-маршруты и кэш. Включение интерфейсов Keenetic находится в списке ключей."${busy ? " disabled" : ""}>${actionLabel("router", "dns-refresh", actionBusyMatches("router", "dns", "dns-refresh"))}</button>
+          <button type="button" class="warning" data-router-action="vpn-refresh" title="Перезапустить Xray и sing-box, используемые маршрутами. Включение интерфейсов Keenetic находится в списке ключей."${busy || !profiles ? " disabled" : ""}>${actionLabel("router", "vpn-refresh", actionBusyMatches("router", "vpn", "vpn-refresh"))}</button>
         </div>
       </section>`;
   }

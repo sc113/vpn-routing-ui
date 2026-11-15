@@ -1321,6 +1321,21 @@ textarea {
   width: 88px;
 }
 
+#profile-list .col-transport {
+  width: 1%;
+  padding-inline: 7px;
+}
+
+#profile-list .route-off-label {
+  color: var(--danger-text, #ff9e9e);
+  margin-inline: 3px;
+}
+
+#profile-list .table-shell {
+  scrollbar-width: thin;
+  scrollbar-color: #516078 #1a202b;
+}
+
 #profile-list .col-profile-state {
   width: 72px;
   text-align: center;

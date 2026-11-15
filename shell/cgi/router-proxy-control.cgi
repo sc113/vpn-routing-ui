@@ -1,10 +1,14 @@
 #!/bin/sh
 
 json_escape() {
-  printf '%s' "$1" | sed ':a;N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\r/\\r/g;s/\n/\\n/g'
+  printf '%s' "$1" | tr -d '\000-\010\013\014\016-\037' |
+    sed ':a;$!N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\t/\\t/g;s/\r/\\r/g;s/\n/\\n/g'
 }
 
 cleanup() {
+  if [ "$ENABLE_PENDING" = "1" ]; then
+    run_ndmc "interface $proxy_id down" || true
+  fi
   rm -f /tmp/router-proxy-control.$$ /tmp/router-proxy-control-netstat.$$ /tmp/router-proxy-control-running.$$ "$SHOW_FILE" 2>/dev/null
   if [ "${LOCK_HELD:-0}" = "1" ]; then
     rm -f "$LOCK_DIR/pid"
@@ -13,15 +17,18 @@ cleanup() {
 }
 
 fail() {
-  cleanup
   printf '{"ok":false,"error":"%s","details":"%s"}' "$(json_escape "$1")" "$(json_escape "$2")"
   exit 0
 }
 
 run_ndmc() {
   ndmc -c "$1" </dev/null >/tmp/router-proxy-control.$$ 2>&1
+  result=$?
   CMD_OUTPUT=$(cat /tmp/router-proxy-control.$$ 2>/dev/null)
-  return $?
+  case "$CMD_OUTPUT" in
+    *"error["*) return 1 ;;
+  esac
+  return "$result"
 }
 
 get_query_value() {
@@ -85,7 +92,7 @@ loopback_connection_count() {
   }
   netstat -an 2>/dev/null > /tmp/router-proxy-control-netstat.$$ || true
   awk -v port=":$wanted_port" '
-    $5 ~ port && ($4 ~ /127[.]0[.]0[.]1/ || $4 ~ /::ffff:127[.]0[.]0[.]1/) && $6 != "LISTEN" {
+    $1 ~ /^tcp/ && $5 ~ (port "$") && $4 ~ /127[.]0[.]0[.]1:/ && $6 != "LISTEN" {
       count++
     }
     END { print count + 0 }
@@ -165,6 +172,80 @@ process_is_running() {
   ps | awk -v pid="$1" '$1 == pid { found = 1 } END { exit(found ? 0 : 1) }'
 }
 
+cpu_sample() {
+  awk '$1 == "cpu" { printf "%.0f %.0f\n", $2+$3+$4+$5+$6+$7+$8+$9, $5+$6; exit }' /proc/stat
+}
+
+cpu_percent() {
+  awk -v before="$1" -v after="$2" 'BEGIN {
+    split(before, b, " "); split(after, a, " ")
+    total = a[1] - b[1]
+    printf "%d\n", total > 0 ? 100 * (total - (a[2] - b[2])) / total : 0
+  }'
+}
+
+watch_enabled_proxy() {
+  sample=$(cpu_sample)
+  intervals=0
+  busy_intervals=0
+  while [ "$intervals" -lt 10 ]; do
+    sleep 2
+    next_sample=$(cpu_sample)
+    usage=$(cpu_percent "$sample" "$next_sample")
+    sample="$next_sample"
+    loopback_after=$(loopback_connection_count "$upstream_port")
+    if [ "$usage" -ge 90 ]; then
+      busy_intervals=$((busy_intervals + 1))
+    else
+      busy_intervals=0
+    fi
+    if [ "$busy_intervals" -ge 2 ] || [ "$loopback_after" -ge 200 ]; then
+      enable_failure="Высокая нагрузка ($usage% CPU, $loopback_after локальных SOCKS-соединений)."
+      return 1
+    fi
+    intervals=$((intervals + 1))
+  done
+  read_proxy_show "$proxy_id"
+  if [ "$(show_value "$SHOW_FILE" link)" = "up" ] &&
+     [ "$(show_value "$SHOW_FILE" connected)" = "yes" ] &&
+     [ "$(show_value "$SHOW_FILE" ctrl)" = "running" ]; then
+    return 0
+  fi
+  enable_failure="Keenetic не подтвердил подключение за 20 секунд."
+  return 1
+}
+
+enable_proxy() {
+  [ "$REQUEST_METHOD" = "POST" ] || fail "Для включения интерфейса требуется POST" ""
+  awk -F'|' -v wanted="$proxy_id" '$2 == wanted && $4 == "1" { found=1 } END { exit !found }' "$MAP_FILE" ||
+    fail "Для этого интерфейса нет включённого профиля" "Включите профиль в списке ключей."
+  read_proxy_show "$proxy_id"
+  [ "$(show_value "$SHOW_FILE" state)" = "down" ] ||
+    fail "Интерфейс уже включён или его состояние неизвестно" "Обновите состояние ProxyN."
+  upstream_port=$(proxy_upstream_port "$proxy_id" | tr -cd '0-9')
+  [ -n "$upstream_port" ] && curl -fsS --connect-timeout 3 --max-time 5 \
+    --socks5-hostname "127.0.0.1:$upstream_port" -o /dev/null https://api.ipify.org 2>/dev/null ||
+    fail "HTTPS через ключ не прошёл" "Проверьте профиль или выберите другой для DNS-маршрутов."
+  sample=$(cpu_sample)
+  sleep 2
+  usage=$(cpu_percent "$sample" "$(cpu_sample)")
+  [ "$usage" -lt 90 ] || fail "Роутер уже перегружен" "Повторите включение после снижения нагрузки."
+
+  ENABLE_PENDING=1
+  run_ndmc "interface $proxy_id up" || fail "Не удалось включить $proxy_id" "$CMD_OUTPUT"
+  if ! watch_enabled_proxy; then
+    if run_ndmc "interface $proxy_id down"; then
+      ENABLE_PENDING=0
+      fail "$proxy_id снова выключен" "$enable_failure Выберите другой проверенный профиль для DNS-маршрутов."
+    fi
+    fail "Не удалось подтвердить выключение $proxy_id" "$enable_failure $CMD_OUTPUT"
+  fi
+  run_ndmc 'system configuration save' || fail "Не удалось сохранить включение $proxy_id" "$CMD_OUTPUT"
+  ENABLE_PENDING=0
+  printf '{"ok":true,"message":"%s подключён и сохранён в Keenetic."}' "$proxy_id"
+  exit 0
+}
+
 clear_stale_lock() {
   lock_pid=$(cat "$LOCK_DIR/pid" 2>/dev/null | tr -cd '0-9')
   if [ -n "$lock_pid" ] && process_is_running "$lock_pid"; then
@@ -206,20 +287,26 @@ LOCK_DIR="$PROFILE_DIR/proxy-control.lock"
 MAP_FILE="$PROFILE_DIR/router-proxies.map"
 SHOW_FILE="/opt/tmp/router-proxy-control-show-$$.txt"
 LOCK_HELD=0
+ENABLE_PENDING=0
 
 mkdir -p "$PROFILE_DIR" /opt/tmp
-trap cleanup EXIT INT TERM HUP
+trap cleanup EXIT
+trap 'exit 1' INT TERM HUP
 acquire_lock
 
 action=$(get_query_value "action")
 proxy_id=$(get_query_value "proxy")
 
 case "$proxy_id" in
-  Proxy[0-9]*) ;;
+  Proxy*) ;;
   *) fail "Неверный ProxyN" "$proxy_id" ;;
+esac
+case "${proxy_id#Proxy}" in
+  ''|*[!0-9]*) fail "Неверный ProxyN" "$proxy_id" ;;
 esac
 
 case "$action" in
+  enable) enable_proxy ;;
   restart|storm-reset|"") ;;
   *) fail "Неверное действие" "$action" ;;
 esac
