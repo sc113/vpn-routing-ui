@@ -178,9 +178,11 @@ cpu_sample() {
 
 cpu_percent() {
   awk -v before="$1" -v after="$2" 'BEGIN {
-    split(before, b, " "); split(after, a, " ")
+    if (split(before, b, " ") != 2 || split(after, a, " ") != 2) exit 1
     total = a[1] - b[1]
-    printf "%d\n", total > 0 ? 100 * (total - (a[2] - b[2])) / total : 0
+    idle = a[2] - b[2]
+    if (total <= 0 || idle < 0 || idle > total) exit 1
+    printf "%d\n", 100 * (total - idle) / total
   }'
 }
 
@@ -191,7 +193,10 @@ watch_enabled_proxy() {
   while [ "$intervals" -lt 10 ]; do
     sleep 2
     next_sample=$(cpu_sample)
-    usage=$(cpu_percent "$sample" "$next_sample")
+    if ! usage=$(cpu_percent "$sample" "$next_sample"); then
+      enable_failure="Не удалось измерить загрузку CPU после включения."
+      return 1
+    fi
     sample="$next_sample"
     loopback_after=$(loopback_connection_count "$upstream_port")
     if [ "$usage" -ge 90 ]; then
@@ -226,10 +231,18 @@ enable_proxy() {
   [ -n "$upstream_port" ] && curl -fsS --connect-timeout 3 --max-time 5 \
     --socks5-hostname "127.0.0.1:$upstream_port" -o /dev/null https://api.ipify.org 2>/dev/null ||
     fail "HTTPS через ключ не прошёл" "Проверьте профиль или выберите другой для DNS-маршрутов."
+  # Recheck a high reading once so a brief burst does not block activation.
   sample=$(cpu_sample)
-  sleep 2
-  usage=$(cpu_percent "$sample" "$(cpu_sample)")
-  [ "$usage" -lt 90 ] || fail "Роутер уже перегружен" "Повторите включение после снижения нагрузки."
+  for attempt in 1 2; do
+    sleep 2
+    next_sample=$(cpu_sample)
+    usage=$(cpu_percent "$sample" "$next_sample") ||
+      fail "Не удалось измерить загрузку CPU" "Интерфейс пока не включён. Повторите попытку."
+    [ "$usage" -lt 90 ] && break
+    sample="$next_sample"
+  done
+  [ "$usage" -lt 90 ] ||
+    fail "Роутер уже перегружен" "CPU: $usage%. Повторите включение после снижения нагрузки."
 
   ENABLE_PENDING=1
   run_ndmc "interface $proxy_id up" || fail "Не удалось включить $proxy_id" "$CMD_OUTPUT"
