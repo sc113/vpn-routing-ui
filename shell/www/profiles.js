@@ -747,8 +747,7 @@ function runStatusRefresh() {
       state.routerRuntimeLoading = false;
       state.routerRuntimeError = "";
       state.statusSnapshotLoaded = true;
-      renderDnsRoutesTable();
-      renderProxyRuntimeTable();
+      renderAll();
       showBanner("ok", "Живой статус роутера перечитан.");
     })
     .catch((error) => {
@@ -760,7 +759,7 @@ function runStatusRefresh() {
       if (!state.routerRuntimeError) {
         state.routerRuntimeError = error.message;
       }
-      renderProxyRuntimeTable();
+      renderAll();
       throw error;
     })
     .finally(() => {
@@ -1281,6 +1280,40 @@ function routerProxyNeedsAttention(runtime) {
   return Boolean(routerProxyAttentionReason(runtime));
 }
 
+function profileRouteStatus(profile, proxyId, runtime) {
+  if (profile && !profile.enabled) {
+    return { kind: "neutral", text: "Профиль выключен", detail: "Включите профиль, чтобы использовать его для маршрутов." };
+  }
+  if (!runtime) {
+    const unknown = state.dnsRoutesLoading || state.dnsRoutesError || state.routerRuntimeLoading;
+    return unknown
+      ? { kind: "neutral", text: "Статус неизвестен", detail: "Состояние интерфейса ещё не получено от Keenetic." }
+      : { kind: "warn", text: "Интерфейс не найден", detail: (proxyId || "ProxyN") + " отсутствует в полученной конфигурации Keenetic." };
+  }
+  if (runtime.state === "down" || runtime.ctrl === "disabled" || !(runtime.configuredUp || runtime.enabled)) {
+    return { kind: "bad", text: "Интерфейс выключен", detail: proxyId + " выключен в Keenetic. Трафик по маршруту через него не проходит." };
+  }
+  const reason = state.routerRuntimeError ? "" : routerProxyAttentionReason(runtime);
+  if (reason) {
+    return { kind: "bad", text: "Нет связи в Keenetic", detail: proxyId + ": " + reason + ". Проверьте состояние в разделе ProxyN." };
+  }
+  const probe = profile && getProfileProbe(profile);
+  if (probe && probe.proxyOk === false) {
+    return { kind: "bad", text: "Выход не подтверждён", detail: "Последний HTTPS-запрос через локальный SOCKS профиля завершился ошибкой." };
+  }
+  if (state.routerRuntimeError) {
+    return { kind: "neutral", text: "Статус неизвестен", detail: "Не удалось прочитать текущее состояние Keenetic: " + state.routerRuntimeError };
+  }
+  if (runtime.healthy) {
+    return { kind: "ok", text: "Интерфейс подключён", detail: proxyId + " подключён в Keenetic. Проверка HTTPS показана отдельно." };
+  }
+  return { kind: "neutral", text: "Связь не проверена", detail: "Маршрут настроен. Нажмите «Проверить профиль», чтобы проверить ключ и интерфейс." };
+}
+
+function profileRouteStatusPill(status) {
+  return `<span class="status-pill status-${status.kind} tiny-status" title="${escapeHtml(status.detail)}">${escapeHtml(status.text)}</span>`;
+}
+
 function routerProxyNameMismatch(profile) {
   const proxyId = getEffectiveRouterProxyId(profile, profile && profile.id);
   const proxy = getRouterProxyRuntime(proxyId);
@@ -1556,6 +1589,7 @@ function normalizeClientAssignments(payload) {
 function hasExpectedLayout() {
   return Boolean(
     $("profilesTableBody") &&
+      $("profileTrafficHeading") &&
       $("dnsRoutesTableBody") &&
       $("selectedOverview") &&
       $("profileModal") &&
@@ -3237,19 +3271,20 @@ function securityLabel(profile) {
   return profile.transport.security || "-";
 }
 
-function probeSummary(profile) {
-  const probe = state.probeResults[profile.id];
+function tcpProbeSummary(profile) {
+  const probe = getProfileProbe(profile);
   if (!probe) {
-    return '<span class="delay-neutral">-</span>';
+    return '<span class="delay-neutral" title="TCP ещё не проверен">—</span>';
   }
   if (probe.kind === "pending") {
     return '<span class="delay-neutral">...</span>';
   }
   if (Number.isFinite(probe.avgMs)) {
-    return `<span class="${delayClass(probe.avgMs)}">${Math.round(probe.avgMs)}</span>`;
+    return `<span class="${delayClass(probe.avgMs)}" title="Сервер принял TCP-соединение">${Math.round(probe.avgMs)}</span>`;
   }
-  const textClass = probe.kind === "ok" ? "delay-good" : probe.kind === "warn" ? "delay-warn" : "delay-bad";
-  return `<span class="${textClass}">${escapeHtml(probe.text)}</span>`;
+  if (probe.tcpOk === true) return '<span class="delay-good">Доступен</span>';
+  if (probe.tcpOk === false) return '<span class="delay-bad">Недоступен</span>';
+  return '<span class="delay-neutral">—</span>';
 }
 
 function renderProfilesTable() {
@@ -3271,6 +3306,8 @@ function renderProfilesTable() {
       const toggleText = profile.enabled ? "Вкл" : "Выкл";
       const toggleTitle = profile.enabled ? "Выключить профиль на роутере" : "Включить профиль на роутере";
       const disabledAttr = state.saveInFlight ? " disabled" : "";
+      const proxyId = getEffectiveRouterProxyId(profile, profile.id);
+      const routeStatus = profileRouteStatus(profile, proxyId, getRouterProxyRuntime(proxyId));
       return `
         <tr class="${selected}${muted}" data-select-profile="${escapeHtml(profile.id)}">
           <td class="mono col-num">${index + 1}</td>
@@ -3284,9 +3321,10 @@ function renderProfilesTable() {
           <td>${escapeHtml(transportLabel(profile))}</td>
           <td>${escapeHtml(securityLabel(profile))}</td>
           <td class="mono">${escapeHtml(profile.engine)}</td>
-          <td class="mono">${escapeHtml(getEffectiveRouterProxyId(profile, profile.id) || "auto")}</td>
+          <td>${proxyId ? `<span class="mono">${escapeHtml(proxyId)}</span> ` : ""}${profileRouteStatusPill(routeStatus)}</td>
           <td class="mono profile-number">${profile.localPort ? ":" + escapeHtml(profile.localPort) : "auto"}</td>
-          <td class="delay-cell profile-number">${probeSummary(profile)}</td>
+          <td class="delay-cell profile-number">${tcpProbeSummary(profile)}</td>
+          <td>${probePill(profile, true)}</td>
           <td>
             <div class="row-actions">
               <button type="button" class="secondary icon-btn" data-edit-profile="${escapeHtml(profile.id)}" title="Редактировать профиль" aria-label="Редактировать профиль"${disabledAttr}>&#9998;</button>
@@ -3302,7 +3340,7 @@ function renderProfilesTable() {
     rows ||
     `
       <tr>
-        <td colspan="13" class="table-empty">Пока нет ни одного профиля. Нажми «Добавить ключ» и открой первый профиль в отдельном окне.</td>
+        <td colspan="14" class="table-empty">Пока нет ни одного профиля. Нажми «Добавить ключ» и открой первый профиль в отдельном окне.</td>
       </tr>
     `;
 }
@@ -3363,29 +3401,17 @@ function renderDnsRoutesTable() {
             };
           })();
         const externalRoute = !assignment && isExternalDnsRouteTarget(route.proxyId) ? route.proxyId : "";
-        const proxyId = assignment && assignment.enabled && assignment.proxyId ? assignment.proxyId : externalRoute || "-";
+        const proxyId = (assignment && assignment.proxyId) || externalRoute || normalizeRouterProxyId(route.proxyId) || "-";
         const directRoute = Boolean(externalRoute);
         const runtime = assignment ? getRouterProxyRuntime(assignment.proxyId) : null;
-        const proxyProblemReason = assignment && assignment.enabled ? routerProxyAttentionReason(runtime) : "";
-        const proxyProblem = Boolean(proxyProblemReason);
         const statusParts = [];
         if (assignment) {
-          statusParts.push(
-            assignment.enabled
-              ? '<span class="status-pill status-ok tiny-status">Активен</span>'
-              : '<span class="status-pill status-neutral tiny-status">Профиль выключен</span>'
-          );
-          if (assignment.enabled && proxyProblem) {
-            statusParts.push(
-              '<span class="status-pill status-bad tiny-status" title="' +
-                escapeHtml("Proxy требует внимания: " + proxyProblemReason) +
-                '">Proxy: ' +
-                escapeHtml(proxyProblemReason) +
-                "</span>"
-            );
-          }
+          const status = profileRouteStatus(assignment.profile, assignment.proxyId, runtime);
+          statusParts.push(profileRouteStatusPill(status));
         } else if (externalRoute) {
           statusParts.push('<span class="status-pill status-direct-first tiny-status">Прямое подключение</span>');
+        } else if (proxyId !== "-") {
+          statusParts.push(profileRouteStatusPill(profileRouteStatus(null, proxyId, getRouterProxyRuntime(proxyId))));
         } else {
           statusParts.push('<span class="status-pill status-neutral tiny-status status-unassigned">Нет маршрута</span>');
         }
@@ -3580,7 +3606,7 @@ function renderProxyRuntimeTable() {
         const activeRuntime = Boolean(proxy.configuredUp || proxy.enabled);
         const attentionReason = routerProxyAttentionReason(proxy);
         const healthHtml = proxy.healthy
-          ? '<span class="status-pill status-ok tiny-status">Работает</span>'
+          ? '<span class="status-pill status-ok tiny-status">Подключён</span>'
           : activeRuntime && attentionReason
             ? '<span class="status-pill status-bad tiny-status" title="' +
               escapeHtml(attentionReason) +
@@ -3808,8 +3834,9 @@ function renderClientPolicies() {
         const optionTitle = String((proxyOptionMap.get(currentProxyId) && proxyOptionMap.get(currentProxyId).title) || "");
         const currentProxyName =
           profileNameByProxyId.get(currentProxyId) || optionTitle.replace(/\s+\([^)]*\)$/, "") || currentProxyId;
-        statusHtml = '<span class="status-pill status-direct-first tiny-status">Полный маршрут активен</span>';
-        note = "Весь трафик идёт через " + currentProxyName + ".";
+        const profile = findProfileByRouterProxyId(getProfiles(), currentProxyId);
+        statusHtml = profileRouteStatusPill(profileRouteStatus(profile, currentProxyId, getRouterProxyRuntime(currentProxyId)));
+        note = "Полный маршрут назначен через " + currentProxyName + ".";
       } else if (isForeign) {
         statusHtml = '<span class="status-pill status-warn tiny-status">Сторонняя policy</span>';
         note =
@@ -3959,27 +3986,29 @@ function runProxyRuntimeAction(proxyId, action) {
         state.routerRuntimeLoading = false;
         state.routerRuntimeError = "";
         state.statusSnapshotLoaded = true;
-        renderDnsRoutesTable();
-        renderProxyRuntimeTable();
-        showBanner("ok", (data && data.message) || (normalized + " переподнят."));
+        const status = profileRouteStatus(null, normalized, getRouterProxyRuntime(normalized));
+        showBanner(status.kind === "ok" ? "ok" : "warn", status.kind === "ok"
+          ? (data && data.message) || (normalized + " подключён.")
+          : normalized + ": " + status.text.toLowerCase() + ". " + status.detail);
       })
     )
     .finally(() => {
       state.proxyRuntimeBusyId = "";
       state.proxyRuntimeBusyAction = "";
-      updateBusyControls();
-      renderDnsRoutesTable();
-      renderClientPolicies();
-      renderProxyRuntimeTable();
+      renderAll();
     });
 }
 
-function probePill(profileId) {
-  const probe = state.probeResults[profileId];
-  if (!probe) {
-    return '<span class="status-pill status-neutral">Не проверялся</span>';
+function probePill(profile, compact) {
+  if (!profile.enabled) {
+    return '<span class="status-pill status-neutral tiny-status">Выключен</span>';
   }
-  return `<span class="status-pill ${probe.kindClass}">${escapeHtml(probe.text)}</span>`;
+  const probe = getProfileProbe(profile);
+  if (!probe) {
+    return '<span class="status-pill status-neutral tiny-status">Не проверен</span>';
+  }
+  const text = compact && probe.proxyOk === false ? "Не проходит" : probe.text;
+  return `<span class="status-pill ${probe.kindClass} tiny-status" title="${escapeHtml(probe.details)}">${escapeHtml(text)}</span>`;
 }
 
 function renderSelectedOverview() {
@@ -3999,8 +4028,10 @@ function renderSelectedOverview() {
   const egress = state.egressResults[profile.id]
     ? `<span class="status-pill status-ok">IP ${escapeHtml(state.egressResults[profile.id])}</span>`
     : '<span class="status-pill status-neutral">Не проверялся</span>';
-  const probe = state.probeResults[profile.id];
-  const probeDetails = probe ? escapeHtml(probe.details || "") : "Пока без проверки.";
+  const probe = getProfileProbe(profile);
+  const probeDetails = probe ? escapeHtml(probe.details || "") : "";
+  const proxyId = getEffectiveRouterProxyId(profile, profile.id);
+  const routeStatus = profileRouteStatus(profile, proxyId, getRouterProxyRuntime(proxyId));
   const routerName = routerProxyNameMismatch(profile);
   const routerNameCard = routerName
     ? `
@@ -4030,11 +4061,12 @@ function renderSelectedOverview() {
       </div>
       <div class="selected-overview-card">
         <div class="label">DNS-маршруты</div>
+        <div class="value">${profileRouteStatusPill(routeStatus)}</div>
         <div class="value">${escapeHtml(buildDnsRulesSummary(profile))}</div>
       </div>
       <div class="selected-overview-card">
-        <div class="label">Проверка профиля</div>
-        <div class="value">${probePill(profile.id)}<div class="field-note">${probeDetails}</div></div>
+        <div class="label">HTTPS через ключ</div>
+        <div class="value">${probePill(profile)}${probeDetails ? `<div class="field-note">${probeDetails}</div>` : ""}</div>
       </div>
       <div class="selected-overview-card">
         <div class="label">Внешний IP</div>
@@ -4043,7 +4075,7 @@ function renderSelectedOverview() {
     </div>
     <div class="selected-overview-actions">
       <button type="button" class="secondary" data-selected-action="edit">Открыть редактор</button>
-      <button type="button" class="ghost" data-selected-action="ping" title="Проверить TCP-подключение к серверу и выход через локальный SOCKS"${state.saveInFlight ? " disabled" : ""}>Проверить профиль</button>
+      <button type="button" class="ghost" data-selected-action="ping" title="Проверить сервер, HTTPS через ключ и состояние интерфейса Keenetic"${state.saveInFlight || state.pingAllInFlight ? " disabled" : ""}>Проверить профиль</button>
       <button type="button" class="ghost" data-selected-action="egress" title="Узнать внешний IP через SOCKS этого профиля"${state.saveInFlight ? " disabled" : ""}>Внешний IP</button>
     </div>
   `;
@@ -4098,11 +4130,9 @@ function setModalOpen(open) {
 }
 
 function renderModalStatus(profile) {
-  const probe = state.probeResults[profile.id];
+  const probe = getProfileProbe(profile);
   if ($("selectedPingStatus")) {
-    $("selectedPingStatus").innerHTML = probe
-      ? `<span class="status-pill ${probe.kindClass}">${escapeHtml(probe.text)}</span>`
-      : '<span class="status-pill status-neutral">Не проверялся</span>';
+    $("selectedPingStatus").innerHTML = probePill(profile);
   }
   if ($("selectedPingDetails")) {
     const details = probe && probe.details ? probe.details : "";
@@ -4667,7 +4697,17 @@ function setAutoPortForModal() {
   showBanner("ok", "Свободный socks-порт подобран автоматически.");
 }
 
-function setProbeResult(profileId, kind, text, details, avgMs) {
+function profileProbeSignature(profile) {
+  const { engine, protocol, server, transport, localPort, enabled } = normalizeProfile(profile);
+  return JSON.stringify({ engine, protocol, server, transport, localPort, enabled });
+}
+
+function getProfileProbe(profile) {
+  const probe = state.probeResults[profile.id];
+  return probe && probe.signature === profileProbeSignature(profile) ? probe : null;
+}
+
+function setProbeResult(profile, kind, text, details, avgMs, checks = {}) {
   const kindClassMap = {
     neutral: "status-neutral",
     pending: "status-pending",
@@ -4675,12 +4715,15 @@ function setProbeResult(profileId, kind, text, details, avgMs) {
     warn: "status-warn",
     bad: "status-bad",
   };
-  state.probeResults[profileId] = {
+  state.probeResults[profile.id] = {
+    signature: profileProbeSignature(profile),
     kind,
     kindClass: kindClassMap[kind] || "status-neutral",
     text,
     details,
     avgMs: Number.isFinite(avgMs) ? avgMs : null,
+    tcpOk: checks.tcpOk,
+    proxyOk: checks.proxyOk,
   };
 }
 
@@ -4710,6 +4753,8 @@ function testSelectedProfileEgress() {
 function refreshProbeDependentViews(profileId) {
   renderProfilesTable();
   renderSelectedOverview();
+  renderDnsRoutesTable();
+  renderClientPolicies();
   if (state.modalDraft && state.modalDraft.id === profileId) {
     renderModalStatus(state.modalDraft);
   }
@@ -4745,7 +4790,7 @@ function renderPingProgress() {
       ? progress.currentName
         ? "Сейчас: " + progress.currentName
         : "Подготавливаем проверку..."
-      : "Работают: " + progress.okCount + ", проблемы: " + progress.issueCount + ".";
+      : "HTTPS прошёл: " + progress.okCount + ", не подтверждён: " + progress.issueCount + ".";
   }
   if (percentNode) {
     percentNode.textContent = percent + "%";
@@ -4776,15 +4821,31 @@ function fetchProbeJson(url) {
     if (!response.ok) {
       throw new Error(fullError || "HTTP " + response.status);
     }
+    if (!data || typeof data.proxyAttempted !== "boolean" || typeof data.tcpOk !== "boolean" ||
+        (data.proxyAttempted && typeof data.proxyOk !== "boolean")) {
+      throw new Error(fullError || "Роутер не вернул результат проверки.");
+    }
     return data;
   });
 }
 
 function pingProfile(profile) {
+  if (state.saveInFlight) {
+    return Promise.reject(new Error("Дождитесь завершения отправки изменений."));
+  }
+  const applied = normalizeProfilesDoc(JSON.parse(state.appliedProfilesSignature || "{}")).profiles.find(
+    (item) => item.id === profile.id
+  );
+  if (!applied || profileProbeSignature(applied) !== profileProbeSignature(profile)) {
+    return Promise.reject(new Error("Сначала отправьте изменения на роутер. Проверка использует установленный ключ."));
+  }
+  if (!profile.enabled) {
+    return Promise.reject(new Error("Профиль выключен. Включите его для проверки трафика."));
+  }
   const socksPort = Number(profile.localPort || 0);
   if (!Number.isInteger(socksPort) || socksPort < 1 || socksPort > 65535) {
     setProbeResult(
-      profile.id,
+      profile,
       "bad",
       "Нет локального SOCKS",
       "Для реальной проверки профиля нужен назначенный локальный SOCKS-порт.",
@@ -4795,7 +4856,7 @@ function pingProfile(profile) {
   }
 
   setProbeResult(
-    profile.id,
+    profile,
     "pending",
     "Идёт проверка",
     "Проверяем TCP " +
@@ -4817,42 +4878,26 @@ function pingProfile(profile) {
       encodeURIComponent(String(socksPort))
   ).then((data) => {
     const details = [];
-    if (data.ip) details.push("IP " + data.ip);
-    const icmpMs = parseProbeMilliseconds(data.avgMs);
     const tcpMs = parseProbeMilliseconds(data.tcpMs);
     const proxyMs = parseProbeMilliseconds(data.proxyMs);
-    if (icmpMs !== null) details.push("ICMP avg " + Math.round(icmpMs) + " мс");
-    if (tcpMs !== null) details.push("TCP " + Math.round(tcpMs) + " мс");
-    if (data.loss) details.push("loss " + data.loss);
-    if (data.tcpMessage) details.push(data.tcpMessage);
-    if (proxyMs !== null) details.push("внешний запрос через SOCKS " + Math.round(proxyMs) + " мс");
-    if (data.egressIp) details.push("внешний IP " + data.egressIp);
-    if (data.proxyMessage) details.push(data.proxyMessage);
-    if (data.message) details.push(data.message);
-    if (data.error) details.push(data.error);
-
-    if (data.proxyAttempted && data.proxyOk) {
-      setProbeResult(profile.id, "ok", "Профиль работает", details.join(" | "), tcpMs);
-    } else if (data.proxyAttempted) {
-      const kind = data.tcpOk || data.ip ? "warn" : "bad";
-      const text = data.tcpOk ? "TCP доступен, SOCKS не работает" : "Профиль не работает";
-      setProbeResult(profile.id, kind, text, details.join(" | "), null);
-    } else if (data.ok) {
-      setProbeResult(profile.id, "ok", "Сервер отвечает", details.join(" | "), icmpMs);
+    details.push(data.tcpOk ? "TCP до сервера доступен" + (tcpMs !== null ? " (" + Math.round(tcpMs) + " мс)" : "") : "TCP до сервера недоступен");
+    const checks = { tcpOk: data.tcpOk, proxyOk: data.proxyAttempted ? Boolean(data.proxyOk) : undefined };
+    if (checks.proxyOk === true) {
+      if (proxyMs !== null) details.push("HTTPS через SOCKS: " + Math.round(proxyMs) + " мс");
+      if (data.egressIp) details.push("Внешний IP: " + data.egressIp);
+      setProbeResult(profile, "ok", "HTTPS проходит", details.join(". "), tcpMs, checks);
+    } else if (checks.proxyOk === false) {
+      details.push("Запрос к api.ipify.org через SOCKS не прошёл");
+      if (data.proxyMessage) details.push(data.proxyMessage);
+      setProbeResult(profile, "bad", "HTTPS не прошёл", details.join(". "), tcpMs, checks);
     } else {
-      setProbeResult(
-        profile.id,
-        data.ip ? "warn" : "bad",
-        data.ip ? "ICMP не отвечает" : "Ошибка проверки",
-        details.join(" | "),
-        null
-      );
+      setProbeResult(profile, "warn", "HTTPS не проверен", details.join(". "), tcpMs, checks);
     }
 
     refreshProbeDependentViews(profile.id);
     return data;
   }).catch((error) => {
-    setProbeResult(profile.id, "bad", "Ошибка проверки", error.message, null);
+    setProbeResult(profile, "bad", "Ошибка проверки", error.message, null);
     refreshProbeDependentViews(profile.id);
     throw error;
   });
@@ -4866,7 +4911,34 @@ function pingSelectedProfile() {
   if (!profile.server.address) {
     return Promise.reject(new Error("У выбранного профиля не заполнен адрес сервера."));
   }
-  return pingProfile(profile);
+  return pingProfile(profile).then(() =>
+    refreshProfileRouteStatuses().then(() => {
+      const probe = getProfileProbe(profile);
+      const proxyId = getEffectiveRouterProxyId(profile, profile.id);
+      const route = profileRouteStatus(profile, proxyId, getRouterProxyRuntime(proxyId));
+      showBanner(probe?.proxyOk && route.kind === "ok" ? "ok" : "warn",
+        (probe ? probe.text : "HTTPS не проверен") + ". Маршруты: " + route.text.toLowerCase() + ".");
+    })
+  );
+}
+
+async function refreshProfileRouteStatuses() {
+  if (state.routerRuntimeLoading || state.proxyRuntimeBusyId || state.saveInFlight) {
+    return;
+  }
+  state.routerRuntimeLoading = true;
+  state.routerRuntimeError = "";
+  try {
+    const data = await loadRouterRuntime();
+    state.routerRuntime = normalizeRouterProxyList(data && data.proxies);
+    state.routerProxies = mergeRouterProxyRuntime(state.routerProxies, state.routerRuntime);
+    state.statusSnapshotLoaded = true;
+  } catch (error) {
+    state.routerRuntimeError = error.message;
+  } finally {
+    state.routerRuntimeLoading = false;
+    renderAll();
+  }
 }
 
 function pingModalDraft() {
@@ -4909,7 +4981,7 @@ async function pingAllProfiles() {
       updateBusyControls();
       try {
         await pingProfile(profile);
-        const probe = state.probeResults[profile.id];
+        const probe = getProfileProbe(profile);
         if (probe && probe.kind === "ok") {
           okCount += 1;
         } else {
@@ -4917,7 +4989,7 @@ async function pingAllProfiles() {
         }
       } catch (error) {
         issueCount += 1;
-        setProbeResult(profile.id, "bad", "Ошибка проверки", error.message, null);
+        setProbeResult(profile, "bad", "Ошибка проверки", error.message, null);
         refreshProbeDependentViews(profile.id);
       }
       state.pingAllProgress.completed += 1;
@@ -4925,10 +4997,15 @@ async function pingAllProfiles() {
       state.pingAllProgress.issueCount = issueCount;
       renderPingProgress();
     }
-    showBanner(
-      issueCount ? "warn" : "ok",
-      "Проверка профилей завершена: работают " + okCount + ", проблемы у " + issueCount + "."
-    );
+    await refreshProfileRouteStatuses();
+    const routeIssues = targets.filter((profile) => {
+      const proxyId = getEffectiveRouterProxyId(profile, profile.id);
+      const status = profileRouteStatus(profile, proxyId, getRouterProxyRuntime(proxyId));
+      return status.kind !== "ok";
+    }).length;
+    showBanner(issueCount || routeIssues || state.routerRuntimeError || !targets.length ? "warn" : "ok",
+      "HTTPS прошёл у " + okCount + " из " + targets.length + " профилей. " +
+      (state.routerRuntimeError ? "Статус Keenetic получить не удалось." : "Маршруты не подтверждены у " + routeIssues + " профилей."));
   } finally {
     state.pingAllInFlight = false;
     state.pingAllProgress.currentName = "";
@@ -5595,9 +5672,9 @@ function wireEvents() {
   });
 
   $("pingSelectedBtn").addEventListener("click", function () {
+    setModalFeedback("");
     pingModalDraft()
-      .then((data) => showBanner(data && data.proxyAttempted && !data.proxyOk ? "warn" : "ok", "Проверка профиля завершена."))
-      .catch((error) => showBanner("error", error.message));
+      .catch((error) => setModalFeedback(error.message, true));
   });
 
   $("unlockPortEdit").addEventListener("change", function () {
@@ -5801,7 +5878,6 @@ function wireEvents() {
         }
       } else if (action === "ping") {
         pingSelectedProfile()
-          .then((data) => showBanner(data && data.proxyAttempted && !data.proxyOk ? "warn" : "ok", "Проверка профиля завершена."))
           .catch((error) => showBanner("error", error.message));
       } else if (action === "egress") {
         testSelectedProfileEgress()
@@ -5921,6 +5997,8 @@ function init(message) {
   state.routerRuntime = [];
   state.routerRuntimeLoading = false;
   state.routerRuntimeError = "";
+  state.probeResults = {};
+  state.egressResults = {};
   state.statusSnapshotLoaded = false;
   state.systemHealth = null;
   state.systemHealthLoading = false;

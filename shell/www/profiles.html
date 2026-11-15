@@ -91,7 +91,7 @@
           <button id="reloadBtn" class="refresh-button" type="button" aria-label="Обновить список ключей" title="Перечитать профили и маршруты с роутера. Локальные изменения будут сброшены." aria-busy="false" data-loading-label="Читаем...">
             <span data-refresh-text>Обновить</span>
           </button>
-          <button id="pingAllBtn" class="ghost" title="Проверить TCP-подключение к серверам и выход через SOCKS активных профилей">Проверить все</button>
+          <button id="pingAllBtn" class="ghost" title="Проверить доступность серверов, HTTPS через ключи и состояние интерфейсов Keenetic">Проверить все</button>
           <button id="openCreateBtn" class="info" type="button">+ Добавить ключ</button>
         </div>
       </div>
@@ -118,9 +118,10 @@
               <th>Транспорт</th>
               <th>Защита</th>
               <th>Движок</th>
-              <th title="Интерфейс ProxyN в Keenetic, связанный с профилем">Proxy</th>
+              <th title="Интерфейс Keenetic, через который работают DNS-маршруты и полный маршрут устройства">Маршруты</th>
               <th class="profile-number" title="Локальный порт профиля на роутере">Socks</th>
               <th class="profile-number" title="Время TCP-подключения от роутера к серверу">TCP, мс</th>
+              <th id="profileTrafficHeading" title="Результат HTTPS-запроса к api.ipify.org через установленный ключ. Состояние маршрутов проверяется отдельно.">Трафик HTTPS</th>
               <th class="col-actions">Действия</th>
             </tr>
           </thead>

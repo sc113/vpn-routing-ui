@@ -113,6 +113,44 @@ function profile(ui, protocol, network = "tcp", security = "tls", engine = "xray
   });
 }
 
+test("a working HTTPS probe does not mark a disabled Keenetic interface as working", async () => {
+  const ui = loadUI();
+  const p = { ...profile(ui, "trojan"), routerProxyId: "Proxy1" };
+  ui.markProfilesApplied({ profiles: [p] });
+  ui.fetchProbeJson = async () => ({ tcpOk: true, tcpMs: 59, proxyAttempted: true, proxyOk: true, proxyMs: 1120 });
+  await ui.pingProfile(p);
+  assert.match(ui.tcpProbeSummary(p), />59</);
+  assert.match(ui.probePill(p, true), /HTTPS проходит/);
+  const status = ui.profileRouteStatus(p, "Proxy1", { configuredUp: true, state: "down", ctrl: "disabled" });
+  assert.equal(status.kind, "bad");
+  assert.equal(status.text, "Интерфейс выключен");
+});
+
+test("TCP stays visible when HTTPS fails, and a draft cannot reuse the installed key's result", async () => {
+  const ui = loadUI();
+  const p = { ...profile(ui, "vless"), routerProxyId: "Proxy4" };
+  ui.markProfilesApplied({ profiles: [p] });
+  let requests = 0;
+  ui.fetchProbeJson = async () => {
+    requests += 1;
+    return { tcpOk: true, tcpMs: 82, proxyAttempted: true, proxyOk: false };
+  };
+  await ui.pingProfile(p);
+  assert.match(ui.tcpProbeSummary(p), />82</);
+  assert.match(ui.probePill(p, true), /Не проходит/);
+  assert.equal(ui.profileRouteStatus(p, "Proxy4", { configuredUp: true, healthy: true }).text, "Выход не подтверждён");
+  const draft = { ...p, server: { ...p.server, address: "new.example.com" } };
+  assert.equal(ui.getProfileProbe(draft), null);
+  await assert.rejects(ui.pingProfile(draft), /Сначала отправьте изменения/);
+  assert.equal(requests, 1);
+});
+
+test("a saved route without runtime data is shown as unverified", () => {
+  const ui = loadUI();
+  const p = profile(ui, "trojan");
+  assert.equal(ui.profileRouteStatus(p, "Proxy1", { enabled: true }).text, "Связь не проверена");
+});
+
 test("REALITY imports both names with the same precedence as Xray", () => {
   const ui = loadUI();
   for (const realitySettings of [{ password: KEY }, { publicKey: KEY }, { password: KEY, publicKey: LEGACY_KEY }]) {
