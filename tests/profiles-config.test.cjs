@@ -91,6 +91,17 @@ test("a failed DNS refresh keeps the draft and retries only DNS", async () => {
   ]);
 });
 
+test("removing a profile waits for its DNS routes to be applied to the replacement", async () => {
+  const { ui, state, calls } = loadSaveFixture();
+  const removed = state.profilesDoc.profiles.find(p => p.id === "from");
+  assert.match(ui.profileRemovalBlocker(removed), /Proxy4.*DNS-групп: 1/);
+  state.profilesDoc.profiles = state.profilesDoc.profiles.filter(p => p.id !== "from");
+  await assert.rejects(ui.saveEverything(), /Proxy4 ещё используется/);
+  assert.deepEqual(calls, []);
+  ui.markDnsRoutesApplied(state.dnsRoutes);
+  assert.equal(ui.profileRemovalBlocker(removed), "");
+});
+
 test("changing a key still saves the engine, syncs ProxyN and saves the profile", async () => {
   const { ui, state, calls } = loadSaveFixture();
   state.profilesDoc.profiles.find(p => p.id === "to").server.address = "new.example.com";

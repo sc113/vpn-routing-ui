@@ -4646,9 +4646,28 @@ function duplicateModalDraft() {
   showBanner("ok", "Профиль продублирован.");
 }
 
+function profileRemovalBlocker(profile) {
+  const proxyId = normalizeRouterProxyId(profile.routerProxyId);
+  if (!proxyId) return "";
+  if (state.dnsRoutesLoading || state.dnsRoutesError) {
+    return "Перечитайте DNS-маршруты перед удалением " + proxyId + ".";
+  }
+  const count = state.appliedDnsRoutesSignature.split("\n").filter((record) => record.split("|")[2] === proxyId).length;
+  if (count) {
+    return proxyId + " ещё используется. Привязано DNS-групп: " + count +
+      ". Переназначьте их в разделе «DNS-маршруты» и нажмите «Отправить на роутер». Затем удалите ключ.";
+  }
+  return "";
+}
+
 function deleteProfile(profileId) {
   const profile = getProfiles().find((item) => item.id === profileId);
   if (!profile) {
+    return;
+  }
+  const blocker = profileRemovalBlocker(profile);
+  if (blocker) {
+    showBanner("warn", blocker);
     return;
   }
   if (!window.confirm('Удалить профиль "' + profile.name + '"?')) {
@@ -5373,6 +5392,14 @@ function saveEverything() {
   }
   if (state.dnsRoutesLoading) {
     return Promise.reject(new Error("Дождитесь загрузки DNS-маршрутов перед отправкой."));
+  }
+
+  const currentIds = new Set(getProfiles().map((profile) => profile.id));
+  const applied = normalizeProfilesDoc(JSON.parse(state.appliedProfilesSignature || "{}"));
+  for (const profile of applied.profiles) {
+    if (currentIds.has(profile.id)) continue;
+    const blocker = profileRemovalBlocker(profile);
+    if (blocker) return Promise.reject(new Error(blocker));
   }
 
   const draftProfiles = state.profilesDoc;

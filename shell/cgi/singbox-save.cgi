@@ -1,7 +1,8 @@
 #!/bin/sh
 
 json_escape() {
-  printf '%s' "$1" | sed ':a;N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\r/\\r/g;s/\n/\\n/g'
+  printf '%s' "$1" | tr -d '\000-\010\013\014\016-\037' |
+    sed ':a;$!N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\t/\\t/g;s/\r/\\r/g;s/\n/\\n/g'
 }
 
 echo "Content-Type: application/json"
@@ -33,20 +34,44 @@ fi
 mkdir -p /opt/tmp "$BACKUP_DIR"
 cat > "$TMP"
 
-singbox_running() {
-  pidof sing-box >/dev/null 2>&1 || pidof sing-box-go >/dev/null 2>&1
+singbox_pids() {
+  pidof sing-box sing-box-go 2>/dev/null
+}
+
+wait_for_singbox() {
+  previous_pids="$1"
+  seen_pids=""
+  attempts=0
+  while [ "$attempts" -lt 8 ]; do
+    current_pids=$(singbox_pids)
+    if [ -n "$current_pids" ] && [ "$current_pids" != "$previous_pids" ] &&
+       [ "$current_pids" = "$seen_pids" ]; then
+      return 0
+    fi
+    seen_pids="$current_pids"
+    attempts=$((attempts + 1))
+    sleep 1
+  done
+  return 1
 }
 
 restart_or_start_singbox() {
-  output=$("$SERVICE" restart 2>&1)
-  code=$?
-  if [ "$code" -ne 0 ] || ! singbox_running; then
-    start_output=$("$SERVICE" start 2>&1)
-    code=$?
-    output=$(printf '%s\n%s' "$output" "$start_output")
+  old_pids=$(singbox_pids)
+  action=start
+  [ -z "$old_pids" ] || action=restart
+  RESTART_OUTPUT=$("$SERVICE" "$action" 2>&1)
+  RESTART_CODE=0
+  if wait_for_singbox "$old_pids"; then
+    return
   fi
-  RESTART_OUTPUT="$output"
-  RESTART_CODE=$code
+  if [ "$action" = restart ] && [ -z "$(singbox_pids)" ]; then
+    start_output=$("$SERVICE" start 2>&1)
+    RESTART_OUTPUT=$(printf '%s\n%s' "$RESTART_OUTPUT" "$start_output")
+    if wait_for_singbox "$old_pids"; then
+      return
+    fi
+  fi
+  RESTART_CODE=1
 }
 
 if [ ! -s "$TMP" ]; then
@@ -66,9 +91,9 @@ fi
 if [ -f "$CONFIG" ] && cmp -s "$TMP" "$CONFIG"; then
   rm -f "$TMP"
   MESSAGE="Конфиг sing-box не изменился, перезапуск не нужен."
-  if ! singbox_running; then
+  if [ -z "$(singbox_pids)" ]; then
     restart_or_start_singbox
-    if [ "$RESTART_CODE" -ne 0 ] || ! singbox_running; then
+    if [ "$RESTART_CODE" -ne 0 ]; then
       printf '{"ok":false,"error":"Конфиг sing-box не изменился, но сервис не удалось запустить","details":"%s"}' "$(json_escape "$RESTART_OUTPUT")"
       exit 0
     fi
@@ -108,7 +133,7 @@ if [ "$RESTART_CODE" -ne 0 ]; then
     cp "$BACKUP_PATH" "$CONFIG"
     "$SERVICE" restart >/dev/null 2>&1
   fi
-  printf '{"ok":false,"error":"Не удалось перезапустить sing-box","details":"%s"}' "$(json_escape "$RESTART_OUTPUT")"
+  printf '{"ok":false,"error":"sing-box не запустился с новым конфигом","details":"%s"}' "$(json_escape "$RESTART_OUTPUT")"
   exit 0
 fi
 

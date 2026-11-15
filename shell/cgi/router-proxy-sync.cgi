@@ -45,7 +45,44 @@ run_ndmc() {
   code=$?
   CMD_OUTPUT=$(cat /tmp/router-proxy-sync-cmd.$$ 2>/dev/null)
   rm -f /tmp/router-proxy-sync-cmd.$$
+  case "$CMD_OUTPUT" in *'error['*) return 1 ;; esac
   return $code
+}
+
+check_removed_routes() {
+  [ -s "$OLD_MAP_FILE" ] || return 0
+  # Use the actual saved Keenetic configuration, not the browser's draft.
+  blocked=$(awk -F'|' '
+    FILENAME == ARGV[1] { if ($1 == "P") wanted[$2] = 1; next }
+    FILENAME == ARGV[2] { if ($1 != "" && !($1 in wanted)) removed[$2] = 1; next }
+    {
+      sub(/^[[:space:]]+/, "")
+      split($0, fields, " ")
+      if (fields[1] == "route" && fields[2] == "object-group") dns[fields[4]]++
+      if (fields[1] == "ip" && fields[2] == "policy") policy=fields[3]
+      if (fields[1] == "!") policy=""
+      if (policy != "" && fields[1] == "permit" && fields[2] == "global" &&
+          fields[3] in removed) policy_proxy[policy,fields[3]]=1
+      if (fields[1] == "host" && fields[3] == "policy") assigned[fields[4]]++
+    }
+    END {
+      for (i in removed) {
+        devices=0
+        for (p in assigned) if ((p,i) in policy_proxy) devices+=assigned[p]
+        if (dns[i] || devices) printf "%s: DNS-групп %d, устройств %d\n", i, dns[i], devices
+      }
+    }
+  ' "$TMP_INPUT" "$OLD_MAP_FILE" "$RUNCFG_FILE")
+  [ -z "$blocked" ] ||
+    fail "Перед удалением профиля переназначьте его DNS-группы и устройства, затем примените назначения" "$blocked"
+}
+
+was_manually_disabled() {
+  awk -F'|' -v id="$1" -v proxy="$2" '
+    FILENAME == ARGV[1] { if ($1 == id && $2 == proxy && $4 == "1") was_enabled=1; next }
+    $1 == proxy && $4 == "down" { is_down=1 }
+    END { exit !(was_enabled && is_down) }
+  ' "$OLD_MAP_FILE" "$EXISTING_FILE"
 }
 
 proxy_exists() {
@@ -377,6 +414,8 @@ fi
 : > "$MAPPINGS_FILE"
 : > "$ENABLED_PORTS_FILE"
 
+check_removed_routes
+
 if [ "$action" = "names" ]; then
   sync_names_only
 fi
@@ -472,7 +511,7 @@ while IFS='|' read -r record_type profile_id name_b64 enabled local_port proxy_h
   fi
 
   if [ "$enabled" = "1" ]; then
-    if ! run_ndmc "interface $candidate up"; then
+    if ! was_manually_disabled "$profile_id" "$candidate" && ! run_ndmc "interface $candidate up"; then
       fail "Не удалось включить интерфейс $candidate" "$CMD_OUTPUT"
     fi
   else
@@ -499,7 +538,9 @@ if [ -s "$OLD_MAP_FILE" ]; then
       continue
     fi
 
-    run_ndmc "no interface $old_proxy" >/dev/null 2>&1 || true
+    if proxy_exists "$old_proxy" && ! run_ndmc "no interface $old_proxy"; then
+      fail "Не удалось удалить $old_proxy" "$CMD_OUTPUT"
+    fi
     echo "$old_proxy" >> "$REMOVED_FILE"
   done < "$OLD_MAP_FILE"
 fi
