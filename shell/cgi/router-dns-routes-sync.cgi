@@ -1,7 +1,8 @@
 #!/bin/sh
 
 json_escape() {
-  printf '%s' "$1" | sed ':a;N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\r/\\r/g;s/\n/\\n/g'
+  printf '%s' "$1" | tr -d '\000-\010\013\014\016-\037' |
+    sed ':a;$!N;$!ba;s/\\/\\\\/g;s/"/\\"/g;s/\t/\\t/g;s/\r/\\r/g;s/\n/\\n/g'
 }
 
 normalize_proxy_id() {
@@ -34,6 +35,9 @@ run_ndmc() {
   code=$?
   CMD_OUTPUT=$(cat /tmp/router-dns-routes-sync-cmd.$$ 2>/dev/null)
   rm -f /tmp/router-dns-routes-sync-cmd.$$
+  case "$CMD_OUTPUT" in
+    *"error["*) return 1 ;;
+  esac
   return $code
 }
 
@@ -123,8 +127,10 @@ remove_route_if_present() {
 }
 
 warm_fqdn_groups() {
-  : > "$WARM_GROUPS_FILE"
-  awk -F'|' 'NF >= 2 && $1 ~ /^domain-list[0-9]+$/ && $2 != "" { print $1 }' "$1" | sort -u > "$WARM_GROUPS_FILE"
+  # Existing routes already use an enabled FQDN group. A change of ProxyN
+  # does not change the group's members or require resolving them again.
+  awk -F'|' 'FILENAME == ARGV[1] { routed[$1] = 1; next } !($1 in routed) { print $1 }' \
+    "$ROUTES_FILE" "$EXPECTED_FILE" > "$WARM_GROUPS_FILE"
 
   FQDN_WARM_COUNT=0
   while IFS= read -r group_id || [ -n "$group_id" ]; do
@@ -141,7 +147,9 @@ warm_fqdn_groups() {
 }
 
 cleanup() {
-  rm -f "$TMP_INPUT" "$RUNCFG_FILE" "$GROUPS_FILE" "$ROUTES_FILE" "$DESIRED_FILE" "$EXPECTED_FILE" "$VERIFY_FILE" "$VERIFY_FILE.routes" "$WARM_GROUPS_FILE"
+  rm -f "$TMP_INPUT" "$RUNCFG_FILE" "$GROUPS_FILE" "$ROUTES_FILE" "$DESIRED_FILE" "$DESIRED_FILE.tmp" \
+    "$EXPECTED_FILE" "$VERIFY_FILE" "$VERIFY_FILE.routes" "$WARM_GROUPS_FILE" "$KEEP_FILE" "$STATE_TMP" \
+    /tmp/router-dns-routes-sync-cmd.$$ /tmp/router-dns-routes-sync-show.$$ /tmp/router-dns-routes-sync-verify-show.$$
   if [ "${LOCK_HELD:-0}" = "1" ]; then
     rm -f "$LOCK_DIR/pid"
     rmdir "$LOCK_DIR" 2>/dev/null
@@ -149,7 +157,6 @@ cleanup() {
 }
 
 fail() {
-  cleanup
   printf '{"ok":false,"error":"%s","details":"%s"}' "$(json_escape "$1")" "$(json_escape "$2")"
   exit 0
 }
@@ -175,10 +182,15 @@ DESIRED_FILE="/opt/tmp/router-dns-routes-sync-desired-$$.txt"
 EXPECTED_FILE="/opt/tmp/router-dns-routes-sync-expected-$$.txt"
 VERIFY_FILE="/opt/tmp/router-dns-routes-sync-verify-$$.txt"
 WARM_GROUPS_FILE="/opt/tmp/router-dns-routes-sync-warm-groups-$$.txt"
+KEEP_FILE="/opt/tmp/router-dns-routes-sync-keep-$$.txt"
+STATE_TMP="$PROFILE_DIR/.dns-routes.state.$$"
 
-mkdir -p "$PROFILE_DIR" "$BACKUP_DIR" /opt/tmp
-cat > "$TMP_INPUT"
 LOCK_HELD=0
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+mkdir -p "$PROFILE_DIR" "$BACKUP_DIR" /opt/tmp
+cat > "$TMP_INPUT" || fail "Не удалось прочитать список DNS-маршрутов" ""
+[ -s "$TMP_INPUT" ] || fail "Пустой список DNS-маршрутов" ""
 acquire_lock
 
 STAMP=$(date +%Y%m%d-%H%M%S)
@@ -190,7 +202,7 @@ if ! ndmc -c 'show running-config' > "$RUNCFG_FILE" 2>/tmp/router-dns-routes-syn
   fail "Не удалось прочитать running-config Keenetic" "$details"
 fi
 rm -f /tmp/router-dns-routes-sync-show.$$
-cp "$RUNCFG_FILE" "$RUNCFG_BACKUP_PATH"
+cp "$RUNCFG_FILE" "$RUNCFG_BACKUP_PATH" || fail "Не удалось сохранить резервную копию конфигурации Keenetic" "$RUNCFG_BACKUP_PATH"
 
 awk '
 $1 == "object-group" && $2 == "fqdn" && $3 ~ /^domain-list[0-9]+$/ {
@@ -233,21 +245,35 @@ while IFS='|' read -r record_type raw_group raw_proxy || [ -n "$record_type$raw_
   printf '%s|%s\n' "$group_id" "$route_target" >> "$DESIRED_FILE"
 done < "$TMP_INPUT"
 
-sort_desired_routes "$DESIRED_FILE"
+sort_desired_routes "$DESIRED_FILE" || fail "Не удалось подготовить список DNS-маршрутов" ""
+[ -s "$DESIRED_FILE" ] || fail "Пустой список DNS-маршрутов" ""
 
 awk -F'|' 'NF >= 2 && $2 != "" { print $1 "|" $2 }' "$DESIRED_FILE" > "$EXPECTED_FILE"
 
+missing_group=$(awk -F'|' '
+  FILENAME == ARGV[1] { requested[$1] = 1; next }
+  !($1 in requested) { print $1; exit }
+' "$DESIRED_FILE" "$ROUTES_FILE")
+[ -z "$missing_group" ] || fail "В запросе пропущен действующий DNS-маршрут. Перечитайте маршруты и повторите отправку" "$missing_group"
+
+# Keenetic appends new routes. Keep the longest prefix of the wanted order
+# that can stay in place after deleting the other entries.
+awk -F'|' '
+  FILENAME == ARGV[1] { wanted[++total] = $0; next }
+  kept < total && $0 == wanted[kept + 1] { print $1; kept++ }
+' "$EXPECTED_FILE" "$ROUTES_FILE" > "$KEEP_FILE"
+
+cp "$DESIRED_FILE" "$STATE_TMP" || fail "Не удалось подготовить сохранение состояния DNS-маршрутов" ""
 applied=0
 FQDN_WARM_COUNT=0
-warm_fqdn_groups "$EXPECTED_FILE"
+warm_fqdn_groups
 
 while IFS='|' read -r group_id desired_proxy || [ -n "$group_id$desired_proxy" ]; do
   [ -n "$group_id" ] || continue
+  grep -Fxq "$group_id" "$KEEP_FILE" && continue
   current_proxy=$(awk -F'|' -v group_id="$group_id" '$1 == group_id { print $2; exit }' "$ROUTES_FILE")
 
-  # Recreate every managed route in payload order. Keenetic evaluates DNS routes
-  # in order, so the UI sends VPN routes before direct/ISP exceptions. Shared
-  # CDN IPs (Cloudflare, Google, etc.) can otherwise be stolen by a direct list.
+  # Append the remaining VPN routes before direct/ISP exceptions.
   if [ -n "$current_proxy" ]; then
     remove_route_if_present "$group_id" "$current_proxy"
     applied=$((applied + 1))
@@ -261,29 +287,23 @@ while IFS='|' read -r group_id desired_proxy || [ -n "$group_id$desired_proxy" ]
   fi
 done < "$DESIRED_FILE"
 
-refresh_verify_routes
+if [ "$applied" -gt 0 ]; then
+  refresh_verify_routes
+else
+  cp "$ROUTES_FILE" "$VERIFY_FILE.routes" || fail "Не удалось проверить DNS-маршруты" ""
+fi
 if ! cmp -s "$EXPECTED_FILE" "$VERIFY_FILE.routes"; then
   fail "Итоговые DNS-маршруты не совпали с ожидаемым состоянием" "$(cat "$VERIFY_FILE.routes" 2>/dev/null)"
 fi
 
-if ! ndmc -c 'system configuration save' >/tmp/router-dns-routes-sync-save.$$ 2>&1; then
-  details=$(cat /tmp/router-dns-routes-sync-save.$$ 2>/dev/null)
-  rm -f /tmp/router-dns-routes-sync-save.$$
-  fail "Не удалось сохранить running-config Keenetic" "$details"
+if ! run_ndmc 'system configuration save'; then
+  fail "Не удалось сохранить running-config Keenetic" "$CMD_OUTPUT"
 fi
-rm -f /tmp/router-dns-routes-sync-save.$$
 
-cp "$DESIRED_FILE" "$ROUTE_STATE_FILE" || fail "Не удалось сохранить состояние DNS-маршрутов" "$ROUTE_STATE_FILE"
+mv "$STATE_TMP" "$ROUTE_STATE_FILE" || fail "Не удалось сохранить состояние DNS-маршрутов" "$ROUTE_STATE_FILE"
 
-printf '{'
-printf '"ok":true,'
-printf '"message":"DNS-маршруты применены, FQDN-cache поставлен в очередь обновления.",'
-printf '"appliedCount":%s,' "$applied"
-printf '"backupPath":"%s",' "$(json_escape "$RUNCFG_BACKUP_PATH")"
-printf '"statePath":"%s",' "$(json_escape "$ROUTE_STATE_FILE")"
-printf '"fqdnWarmCount":%s,' "$FQDN_WARM_COUNT"
-printf '"fqdnWarmDelaySec":6,'
-printf '"verifiedCount":%s' "$(wc -l < "$EXPECTED_FILE" | tr -d ' ')"
-printf '}'
-
-cleanup
+warm_delay=0
+[ "$FQDN_WARM_COUNT" -eq 0 ] || warm_delay=6
+printf '{"ok":true,"message":"DNS-маршруты применены и сохранены.","appliedCount":%s,"backupPath":"%s","statePath":"%s","fqdnWarmCount":%s,"fqdnWarmDelaySec":%s,"verifiedCount":%s}' \
+  "$applied" "$(json_escape "$RUNCFG_BACKUP_PATH")" "$(json_escape "$ROUTE_STATE_FILE")" \
+  "$FQDN_WARM_COUNT" "$warm_delay" "$(wc -l < "$EXPECTED_FILE" | tr -d ' ')"

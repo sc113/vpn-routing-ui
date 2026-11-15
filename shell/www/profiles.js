@@ -1391,7 +1391,7 @@ function fetchJson(url, options) {
           throw error;
         }
         if (response.ok) {
-          throw new Error("Роутер вернул некорректный ответ JSON.");
+          throw new Error("Роутер вернул некорректный ответ JSON.", { cause: error });
         }
         return {};
       });
@@ -5342,9 +5342,9 @@ function saveEverything() {
     setSaveProgress(
       56,
       progressStep(dnsOnly ? 2 : 5, totalSteps, "применяем DNS-маршруты"),
-      "Применяем " +
+      "Проверяем и применяем " +
         getDnsRoutes().length +
-        " назначений по очереди. При массовой смене всех списков Keenetic может выполнять этот шаг около двух минут."
+        " назначений. При массовой смене это может занять больше времени."
     );
     return fetchJson("/cgi-bin/router-dns-routes-sync.cgi", {
       method: "POST",
@@ -5352,6 +5352,15 @@ function saveEverything() {
         "Content-Type": "text/plain; charset=utf-8",
       },
       body: dnsRouteSyncPayload,
+    }).catch((error) => {
+      if (error.cause?.name === "SyntaxError" || error.name === "TypeError") {
+        throw new Error(
+          "Не удалось получить подтверждение от роутера. Часть маршрутов могла уже измениться. " +
+            "При повторной отправке интерфейс сверится с текущими назначениями.",
+          { cause: error }
+        );
+      }
+      throw error;
     }).then(() => {
       setSaveProgress(
         66,
