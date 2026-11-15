@@ -270,7 +270,7 @@ function normalizeSystemHealth(payload) {
       system: toNumber(cpu.system),
       idle: toNumber(cpu.idle),
       softirq: toNumber(cpu.softirq),
-      busy: cpu.busy == null ? 100 - toNumber(cpu.idle) : toNumber(cpu.busy),
+      busy: Number.isFinite(cpu.busy) && cpu.busy >= 0 && cpu.busy <= 100 ? cpu.busy : null,
       source: String(cpu.source || "").trim(),
     },
     load: {
@@ -290,7 +290,7 @@ function normalizeSystemHealth(payload) {
       singboxCpu: toNumber(processes.singboxCpu),
       xrayCpu: toNumber(processes.xrayCpu),
       proxyCpu: toNumber(processes.proxyCpu),
-      measured: processes.measured !== false,
+      measured: processes.measured === true,
     },
   };
 }
@@ -3526,10 +3526,10 @@ function renderProxyRuntimeTable() {
       note.hidden = true;
     } else if (systemBusy) {
       note.className = "runtime-health-note is-bad";
-      note.textContent =
-        "Роутер сейчас перегружен: CPU занят " +
-        formatPercent(state.systemHealth.cpu.busy) +
-        ". В такие минуты compact и длинные запросы могут рваться даже при живых ProxyN.";
+      const busy = state.systemHealth.cpu.busy;
+      note.textContent = busy !== null && busy >= 90
+        ? "На последнем замере CPU был занят на " + formatPercent(busy, 1) + "."
+        : "На последнем замере VPN или KeeneticOS сильно нагружал процессор.";
       note.hidden = false;
     } else if (state.routerRuntimeLoading) {
       note.className = "runtime-health-note";

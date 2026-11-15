@@ -32,10 +32,11 @@
     const cores = Math.max(1, toNumber(load.cores) || 1);
     const loadOnePercent =
       load.onePercent == null ? (toNumber(load.one) * 100) / cores : toNumber(load.onePercent);
-    const cpuBusy = cpu.busy == null ? 100 - toNumber(cpu.idle) : toNumber(cpu.busy);
-    const processesMeasured = processes.measured !== false;
+    const cpuBusy = Number.isFinite(cpu.busy) && cpu.busy >= 0 && cpu.busy <= 100 ? cpu.busy : null;
+    const processesMeasured = processes.measured === true;
     return {
-      cpuBusy: clampPercent(cpuBusy),
+      cpuBusy,
+      cpuSource: String(cpu.source || ""),
       loadOne: toNumber(load.one),
       loadOnePercent: clampPercent(loadOnePercent),
       memoryUsed: toNumber(memory.usedPercent),
@@ -81,10 +82,8 @@
 
   function sampledAtLabel(value) {
     const date = new Date(String(value || ""));
-    if (!Number.isFinite(date.getTime())) {
-      return "Данные обновлены только что";
-    }
-    return "Данные обновлены в " + date.toLocaleTimeString("ru-RU");
+    if (!Number.isFinite(date.getTime())) return "";
+    return "Замер в " + date.toLocaleTimeString("ru-RU");
   }
 
   function render(widget, state) {
@@ -117,8 +116,12 @@
     }
 
     const health = state.health;
+    const cpuText = health.cpuBusy === null ? "Нет данных" : health.cpuBusy < 1 ? "<1%" : formatPercent(health.cpuBusy, 1);
+    const cpuTitle = health.cpuBusy === null
+      ? "Не удалось измерить загрузку CPU."
+      : "Загрузка в момент замера. Источник: " + (health.cpuSource === "keenetic" ? "KeeneticOS" : "Linux");
     let html =
-      row("🧠", "CPU", formatPercent(health.cpuBusy), "Занятый CPU роутера. Чем меньше, тем спокойнее.", loadLevel(health.cpuBusy)) +
+      row("🧠", "CPU", cpuText, cpuTitle, loadLevel(health.cpuBusy)) +
       row("📈", "Load 1м", formatPercent(health.loadOnePercent, 1), "Load average за 1 минуту в процентах от числа CPU-ядер.", loadLevel(health.loadOnePercent)) +
       row("💾", "RAM", formatPercent(health.memoryUsed, 1), "Занятая оперативная память.", loadLevel(health.memoryUsed));
     if (health.processesMeasured) {
@@ -127,7 +130,8 @@
         row("🚇", "VPN", formatPercent(health.vpnCpu, 1), "Суммарный CPU xray и sing-box.", loadLevel(health.vpnCpu)) +
         row("🔀", "ProxyN", formatPercent(health.proxyCpu, 1), "CPU процессов ProxyN.", loadLevel(health.proxyCpu));
     }
-    html += `<div class="system-health-widget-updated">${escapeHtml(sampledAtLabel(health.sampledAt))}</div>`;
+    const sampledAt = sampledAtLabel(health.sampledAt);
+    if (sampledAt) html += `<div class="system-health-widget-updated">${escapeHtml(sampledAt)}</div>`;
     body.innerHTML = html;
   }
 

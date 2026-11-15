@@ -86,7 +86,7 @@
         system: toNumber(cpu.system),
         idle: toNumber(cpu.idle),
         softirq: toNumber(cpu.softirq),
-        busy: cpu.busy == null ? 100 - toNumber(cpu.idle) : toNumber(cpu.busy),
+        busy: Number.isFinite(cpu.busy) && cpu.busy >= 0 && cpu.busy <= 100 ? cpu.busy : null,
         source: String(cpu.source || "").trim(),
       },
       load: {
@@ -107,7 +107,7 @@
         singboxCpu: toNumber(processes.singboxCpu),
         xrayCpu: toNumber(processes.xrayCpu),
         proxyCpu: toNumber(processes.proxyCpu),
-        measured: processes.measured !== false,
+        measured: processes.measured === true,
       },
     };
   }
@@ -205,7 +205,9 @@
       `;
     }
     const health = state.systemHealth;
-    const cpuBusy = Math.max(0, Math.min(100, toNumber(health.cpu.busy)));
+    const cpuBusy = health.cpu.busy;
+    const cpuText = cpuBusy === null ? "Нет данных" : cpuBusy < 1 ? "<1%" : formatPercent(cpuBusy, 1);
+    const cpuTitle = health.sampledAt ? "Замер CPU в " + health.sampledAt : "Замер загрузки CPU";
     const processChips = health.processes.measured
       ? `
       <div class="engine-inline-chip ${healthChipClass("process", health.processes.ndmCpu)}" title="${escapeHtml(healthMetricTitle("ndm", health))}">
@@ -218,9 +220,9 @@
       </div>`
       : "";
     return `
-      <div class="engine-inline-chip ${healthChipClass("process", cpuBusy)}" title="${escapeHtml("Занятый CPU роутера. Чем меньше, тем спокойнее.")}">
+      <div class="engine-inline-chip ${cpuBusy === null ? "chip-muted" : healthChipClass("process", cpuBusy)}" title="${escapeHtml(cpuTitle)}">
         <span class="label">CPU занято</span>
-        <span class="value">${escapeHtml(formatPercent(cpuBusy))}</span>
+        <span class="value">${escapeHtml(cpuText)}</span>
       </div>
       <div class="engine-inline-chip ${healthChipClass("process", health.load.onePercent)}" title="${escapeHtml("Load average за 1 минуту в процентах от числа CPU-ядер.")}">
         <span class="label">Load 1м</span>

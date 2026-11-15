@@ -41,9 +41,9 @@ fi
 
 read_cpu_stat() {
   awk '
-  $1 == "cpu" {
-    for (i = 2; i <= 11; i++) {
-      printf "%s%s", ($i + 0), (i == 11 ? "\n" : " ")
+  $1 == "cpu" && NF >= 9 {
+    for (i = 2; i <= 9; i++) {
+      printf "%s%s", ($i + 0), (i == 9 ? "\n" : " ")
     }
     exit
   }
@@ -53,28 +53,16 @@ read_cpu_stat() {
 read_firmware_cpu() {
   command -v ndmc >/dev/null 2>&1 || return
   ndmc -c "show system" 2>/dev/null | awk -F: '
-  $1 ~ /cpuload/ {
+  $1 ~ /cpuload[[:space:]]*$/ {
     value = $2
-    gsub(/[^0-9.]/, "", value)
-    if (value != "") {
-      print value
+    gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+    sub(/[[:space:]]*%$/, "", value)
+    if (value ~ /^[0-9]+([.][0-9]+)?$/ && value + 0 <= 100) {
+      printf "%.1f\n", value + 0
       exit
     }
   }
   '
-}
-
-clamp_cpu_percent() {
-  awk -v value="${1:-0}" 'BEGIN {
-    value += 0
-    if (value < 0) {
-      value = 0
-    }
-    if (value > 100) {
-      value = 100
-    }
-    printf "%.1f", value
-  }'
 }
 
 write_pid_ticks() {
@@ -125,12 +113,12 @@ load_five_percent=$(awk -v load="${load_five:-0}" -v cores="${cpu_cores:-1}" 'BE
 load_fifteen_percent=$(awk -v load="${load_fifteen:-0}" -v cores="${cpu_cores:-1}" 'BEGIN { if (cores > 0) printf "%.1f", (load * 100) / cores; else printf "0" }')
 
 firmware_cpu=$(read_firmware_cpu)
-cpu_source="proc"
-cpu_user=0
-cpu_system=0
-cpu_idle=100
-cpu_softirq=0
-cpu_busy=0
+cpu_source="unavailable"
+cpu_user=null
+cpu_system=null
+cpu_idle=null
+cpu_softirq=null
+cpu_busy=null
 cpu_total_delta=0
 processes_measured=false
 ndm_cpu=0
@@ -140,7 +128,7 @@ proxy_cpu=0
 
 if [ -n "$firmware_cpu" ]; then
   cpu_source="keenetic"
-  cpu_busy=$(clamp_cpu_percent "$firmware_cpu")
+  cpu_busy="$firmware_cpu"
   cpu_idle=$(awk -v busy="${cpu_busy:-0}" 'BEGIN { printf "%.1f", 100 - busy }')
 else
   write_process_ticks "$PROC_BEFORE_FILE"
@@ -148,24 +136,18 @@ else
   sleep 1
   CPU_STAT_AFTER=$(read_cpu_stat)
   write_process_ticks "$PROC_AFTER_FILE"
-  processes_measured=true
-
   cpu_metrics=$(awk -v before="$CPU_STAT_BEFORE" -v after="$CPU_STAT_AFTER" '
 BEGIN {
-  split(before, a, " ")
-  split(after, b, " ")
+  if (split(before, a, " ") != 8 || split(after, b, " ") != 8) exit
   total = 0
-  for (i = 1; i <= 10; i++) {
+  for (i = 1; i <= 8; i++) {
     delta[i] = b[i] - a[i]
     if (delta[i] < 0) {
       delta[i] = 0
     }
     total += delta[i]
   }
-  if (total <= 0) {
-    printf "0 0 100 0"
-    exit
-  }
+  if (total <= 0) exit
   user = delta[1] + delta[2]
   sys_cpu = delta[3]
   idle = delta[4] + delta[5]
@@ -173,13 +155,17 @@ BEGIN {
   printf "%.1f %.1f %.1f %.1f %d", (user * 100) / total, (sys_cpu * 100) / total, (idle * 100) / total, (softirq * 100) / total, total
 }
 ')
-  set -- $cpu_metrics
-  cpu_user="${1:-0}"
-  cpu_system="${2:-0}"
-  cpu_idle="${3:-100}"
-  cpu_softirq="${4:-0}"
-  cpu_total_delta="${5:-0}"
-  cpu_busy=$(awk -v idle="${cpu_idle:-100}" 'BEGIN { printf "%.1f", 100 - idle }')
+  if [ -n "$cpu_metrics" ]; then
+    set -- $cpu_metrics
+    cpu_source="proc"
+    cpu_user="$1"
+    cpu_system="$2"
+    cpu_idle="$3"
+    cpu_softirq="$4"
+    cpu_total_delta="$5"
+    cpu_busy=$(awk -v idle="$cpu_idle" 'BEGIN { printf "%.1f", 100 - idle }')
+    processes_measured=true
+  fi
 fi
 
 mem_total_kb=$(awk '/MemTotal:/ { print $2; exit }' "$MEM_FILE" 2>/dev/null)
@@ -236,11 +222,7 @@ fi
     "$(num_or_zero "$cpu_cores")" \
     "$(json_escape "$load_running")"
   printf '"cpu":{"user":%s,"system":%s,"idle":%s,"softirq":%s,"busy":%s,"source":"%s"},' \
-    "$(num_or_zero "$cpu_user")" \
-    "$(num_or_zero "$cpu_system")" \
-    "$(num_or_zero "$cpu_idle")" \
-    "$(num_or_zero "$cpu_softirq")" \
-    "$(num_or_zero "$cpu_busy")" \
+    "$cpu_user" "$cpu_system" "$cpu_idle" "$cpu_softirq" "$cpu_busy" \
     "$(json_escape "$cpu_source")"
   printf '"memory":{"totalKb":%s,"availableKb":%s,"usedKb":%s,"usedPercent":%s},' \
     "$(num_or_zero "$mem_total_kb")" \
