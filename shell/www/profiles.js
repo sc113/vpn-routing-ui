@@ -2098,7 +2098,7 @@ function ensureSelection() {
 function nextFreePort(skipId) {
   const usedPorts = new Set(
     getProfiles()
-      .filter((profile) => profile.id !== skipId && profile.enabled)
+      .filter((profile) => profile.id !== skipId)
       .map((profile) => toNumber(profile.localPort))
       .filter(Boolean)
   );
@@ -2135,7 +2135,6 @@ function assignMissingPorts(doc) {
   const next = normalizeProfilesDoc(doc);
   const used = new Set(
     next.profiles
-      .filter((profile) => profile.enabled)
       .map((profile) => toNumber(profile.localPort))
       .filter(Boolean)
   );
@@ -3206,7 +3205,7 @@ function resetEditorFields() {
     profileNameInput: "",
     profileRouterProxyId: "",
     profileEnabled: "true",
-    profileEngine: "xray",
+    profileEngine: "sing-box",
     profileProtocol: "shadowsocks",
     localPort: "",
     serverAddress: "",
@@ -3310,13 +3309,6 @@ function renderProfilesTable() {
     return;
   }
   const rows = getProfiles()
-    .slice()
-    .sort((left, right) => {
-      if (left.localPort && right.localPort) {
-        return left.localPort - right.localPort;
-      }
-      return left.name.localeCompare(right.name, "ru");
-    })
     .map((profile, index) => {
       const selected = profile.id === state.selectedId ? " selected" : "";
       const muted = profile.enabled ? "" : " muted-row";
@@ -4317,7 +4309,7 @@ function setModalFeedback(message, isError = false) {
 }
 
 function openCreateModal() {
-  const profile = createEmptyProfile("shadowsocks");
+  const profile = createEmptyProfile("shadowsocks", "sing-box");
   profile.localPort = nextFreePort();
   openProfileModal("create", profile);
 }
@@ -4583,7 +4575,15 @@ function commitModalDraft() {
   }
 
   next = validateProfile(next.protocol === "trojan" ? applyRouterFixes(next) : normalizeProfile(next));
-  const duplicateName = getProfiles().find(
+  const profiles = getProfiles();
+  const previous = state.modalMode === "edit" ? profiles.find((profile) => profile.id === next.id) : null;
+  if (!previous || previous.localPort !== next.localPort) {
+    const portOwner = profiles.find((profile) => profile.id !== next.id && profile.localPort === next.localPort);
+    if (portOwner) {
+      throw new Error('Локальный SOCKS-порт :' + next.localPort + ' закреплён за профилем «' + portOwner.name + '».');
+    }
+  }
+  const duplicateName = profiles.find(
     (profile) => profile.id !== next.id && String(profile.name || "").trim().toLowerCase() === next.name.trim().toLowerCase()
   );
   if (duplicateName) {
@@ -4609,7 +4609,7 @@ function commitModalDraft() {
 }
 
 function applyLinkToModal(link) {
-  const current = getModalDraft() || createEmptyProfile("shadowsocks");
+  const current = getModalDraft() || createEmptyProfile("shadowsocks", "sing-box");
   const parsed = parseLinkToProfile(link);
   const hasLinkName = !isSystemLikeProfileName(parsed.name, parsed.id, parsed.protocol, parsed.engine);
   parsed.id = current.id || parsed.id;

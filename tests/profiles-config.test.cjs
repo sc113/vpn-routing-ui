@@ -23,6 +23,48 @@ const LEGACY_KEY = Buffer.alloc(32, 2).toString("base64url");
 const PASSWORD = "test:password/@%";
 const SID = "0123456789abcdef";
 
+test("a new key defaults to sing-box and skips ports reserved by disabled profiles", () => {
+  const ui = loadUI();
+  const state = vm.runInContext("state", ui);
+  const existing = [
+    { ...profile(ui, "trojan", "ws", "tls", "sing-box"), id: "free", enabled: false, localPort: 2086 },
+    { ...profile(ui, "vless", "tcp", "none", "sing-box"), id: "uk", localPort: 2087 },
+  ];
+  state.profilesDoc = ui.normalizeProfilesDoc({ profiles: existing });
+  let draft;
+  ui.openProfileModal = (mode, next) => {
+    assert.equal(mode, "create");
+    draft = next;
+  };
+
+  ui.openCreateModal();
+  assert.equal(draft.engine, "sing-box");
+  assert.equal(draft.localPort, 2088);
+  const missingPort = { ...draft, localPort: 0 };
+  assert.equal(ui.assignMissingPorts({ profiles: [...existing, missingPort] }).profiles[2].localPort, 2088);
+
+  state.modalMode = "create";
+  ui.syncModalDraftFromFields = () => ({
+    ...profile(ui, "shadowsocks", "tcp", "none", "sing-box"), id: "new-key", localPort: 2086,
+  });
+  assert.throws(() => ui.commitModalDraft(), /SOCKS-порт :2086 закреплён/);
+});
+
+test("the keys table uses saved order even when a legacy profile reuses an earlier port", () => {
+  const table = { innerHTML: "" };
+  const ui = loadUI({ profilesTableBody: table });
+  const state = vm.runInContext("state", ui);
+  state.profilesDoc = ui.normalizeProfilesDoc({ profiles: [
+    { ...profile(ui, "trojan", "ws", "tls", "sing-box"), id: "free", enabled: false, localPort: 2086 },
+    { ...profile(ui, "vless", "tcp", "none", "sing-box"), id: "uk", localPort: 2087 },
+    { ...profile(ui, "shadowsocks", "tcp", "none", "sing-box"), id: "new-key", localPort: 2086 },
+  ] });
+
+  ui.renderProfilesTable();
+  const rows = [...table.innerHTML.matchAll(/data-select-profile="([^"]+)"/g)].map(match => match[1]);
+  assert.deepEqual(rows, ["free", "uk", "new-key"]);
+});
+
 function loadSaveFixture() {
   const ui = loadUI();
   vm.runInContext(`
