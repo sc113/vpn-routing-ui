@@ -30,6 +30,19 @@ installed_pkg_time() {
   '
 }
 
+engine_updated_at() {
+  package_time=$(json_number "$(installed_pkg_time "$1")")
+  binary_time=0
+  if [ -n "$2" ]; then
+    binary_time=$(json_number "$(date -r "$2" +%s 2>/dev/null)")
+  fi
+  if [ "$binary_time" -gt "$package_time" ]; then
+    printf '%s' "$binary_time"
+  else
+    printf '%s' "$package_time"
+  fi
+}
+
 version_state_epoch() {
   awk -F'|' -v key="$1" '$1 == key && $2 ~ /^[0-9]+$/ { print $2; exit }' /opt/etc/vpn-routing-ui/versions.state 2>/dev/null
 }
@@ -52,39 +65,41 @@ SINGBOX_RUNNING=0
 SINGBOX_SERVICE=0
 XRAY_INIT="/opt/etc/init.d/S24xray"
 SINGBOX_INIT="/opt/etc/init.d/S99sing-box"
+XRAY_BIN=""
+SINGBOX_BIN=""
 
-[ -x /opt/sbin/xray ] && XRAY_INSTALLED=1
+if [ -x /opt/sbin/xray ]; then
+  XRAY_INSTALLED=1
+  XRAY_BIN=/opt/sbin/xray
+fi
 pidof xray >/dev/null 2>&1 && XRAY_RUNNING=1
-[ -x /opt/bin/sing-box ] && SINGBOX_INSTALLED=1
-[ -x /opt/sbin/sing-box ] && SINGBOX_INSTALLED=1
-[ -x /opt/bin/sing-box-go ] && SINGBOX_INSTALLED=1
-[ -x /opt/sbin/sing-box-go ] && SINGBOX_INSTALLED=1
+for binary in /opt/bin/sing-box /opt/sbin/sing-box /opt/bin/sing-box-go /opt/sbin/sing-box-go; do
+  if [ -x "$binary" ]; then
+    SINGBOX_INSTALLED=1
+    SINGBOX_BIN=$binary
+    break
+  fi
+done
 pidof sing-box >/dev/null 2>&1 && SINGBOX_RUNNING=1
 pidof sing-box-go >/dev/null 2>&1 && SINGBOX_RUNNING=1
 [ -x "$SINGBOX_INIT" ] && SINGBOX_SERVICE=1
 
 XRAY_VERSION=""
-if [ "$XRAY_INSTALLED" = "1" ]; then
-  XRAY_VERSION=$(/opt/sbin/xray version 2>/dev/null | head -n 1)
+if [ -n "$XRAY_BIN" ]; then
+  XRAY_VERSION=$("$XRAY_BIN" version 2>/dev/null | head -n 1)
 fi
 
 SINGBOX_VERSION=""
-if [ -x /opt/bin/sing-box ]; then
-  SINGBOX_VERSION=$(/opt/bin/sing-box version 2>/dev/null | head -n 1)
-elif [ -x /opt/sbin/sing-box ]; then
-  SINGBOX_VERSION=$(/opt/sbin/sing-box version 2>/dev/null | head -n 1)
-elif [ -x /opt/bin/sing-box-go ]; then
-  SINGBOX_VERSION=$(/opt/bin/sing-box-go version 2>/dev/null | head -n 1)
-elif [ -x /opt/sbin/sing-box-go ]; then
-  SINGBOX_VERSION=$(/opt/sbin/sing-box-go version 2>/dev/null | head -n 1)
+if [ -n "$SINGBOX_BIN" ]; then
+  SINGBOX_VERSION=$("$SINGBOX_BIN" version 2>/dev/null | head -n 1)
 fi
 if [ -z "$SINGBOX_VERSION" ]; then
   SINGBOX_VERSION=$(installed_pkg_version "sing-box-go")
 fi
 
 UI_UPDATED_AT=$(version_state_epoch "ui")
-XRAY_UPDATED_AT=$(installed_pkg_time "xray")
-SINGBOX_UPDATED_AT=$(installed_pkg_time "sing-box-go")
+XRAY_UPDATED_AT=$(engine_updated_at "xray" "$XRAY_BIN")
+SINGBOX_UPDATED_AT=$(engine_updated_at "sing-box-go" "$SINGBOX_BIN")
 
 CONFIG_PATH="/opt/etc/xray/config.json"
 if [ -f "$XRAY_INIT" ]; then
